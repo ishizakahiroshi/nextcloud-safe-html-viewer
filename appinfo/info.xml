@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	  xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+	<id>safe_html_viewer</id>
+	<name>Safe HTML Viewer</name>
+	<summary>Preview HTML files safely with CSP sandbox and best-effort secret redaction</summary>
+	<description>
+		<![CDATA[
+			<p>Safely view <code>.html</code> / <code>text/html</code> files stored in Nextcloud using a strict <code>Content-Security-Policy: sandbox</code> (no <code>allow-same-origin</code>).</p>
+			<p>Optional best-effort redaction of emails, phone numbers, private IPs/URLs, and credential-like strings is applied at display time. The original file is never modified.</p>
+			<p>Designed as a "best-effort safe preview" tool to reduce accidental secret leakage when sharing HTML documents. Not a full DLP solution.</p>
+		]]>
+	</description>
+	<version>0.1.0</version>
+	<licence>agpl</licence>
+	<author>Contributors</author>
+	<namespace>SafeHtmlViewer</namespace>
+	<category>files</category>
+	<bugs>https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/issues</bugs>
+	<dependencies>
+		<nextcloud min-version="28" max-version="33"/>
+	</dependencies>
+	<!--
+		Add fictional-data screenshots under screenshots/ and re-enable this element
+		before submitting to the Nextcloud App Store. Kept commented out while no image
+		exists so the public repo / App Store listing has no broken reference.
+	<screenshot>https://raw.githubusercontent.com/ishizakahiroshi/nextcloud-safe-html-viewer/main/screenshots/screenshot1.png</screenshot>
+	-->
+</info>

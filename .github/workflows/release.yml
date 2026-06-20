@@ -1,0 +1,68 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # App Store publishing is optional. Set the APPSTORE_TOKEN and APP_PRIVATE_KEY
+    # repository secrets (see docs/release.md) to enable the final step. Without
+    # them that step is skipped and only the GitHub Release tarball is produced.
+    env:
+      APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install JS deps and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Prepare app tarball (exclude dev files)
+        run: |
+          mkdir -p dist
+          # Use git archive for a clean tree, then overlay the built js/main.js
+          git archive --format=tar --prefix=safe_html_viewer/ HEAD | tar -x -C dist
+          # Ensure built artifact is present (git archive does not include untracked, but js/main.js should be committed)
+          cp -f js/main.js dist/safe_html_viewer/js/main.js || true
+          # Remove things that should never ship
+          rm -rf dist/safe_html_viewer/node_modules || true
+          rm -rf dist/safe_html_viewer/.git || true
+          rm -f dist/safe_html_viewer/.gitignore dist/safe_html_viewer/composer.lock || true
+          cd dist
+          tar -czf ../safe_html_viewer-${GITHUB_REF_NAME}.tar.gz safe_html_viewer/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            safe_html_viewer-${{ github.ref_name }}.tar.gz
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+      - name: Publish to Nextcloud App Store
+        # Runs only when the signing secrets are configured (see docs/release.md).
+        # The R0Wi action signs the tarball with APP_PRIVATE_KEY and registers the
+        # release with the App Store. Pinned to a specific commit on purpose.
+        if: ${{ env.APPSTORE_TOKEN != '' && env.APP_PRIVATE_KEY != '' }}
+        uses: R0Wi/nextcloud-appstore-push-action@a011fe619bcf6e77ddebc96f9908e1af4071b9c1
+        with:
+          app_name: safe_html_viewer
+          appstore_token: ${{ secrets.APPSTORE_TOKEN }}
+          download_url: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/safe_html_viewer-${{ github.ref_name }}.tar.gz
+          app_private_key: ${{ secrets.APP_PRIVATE_KEY }}
+          nightly: false
