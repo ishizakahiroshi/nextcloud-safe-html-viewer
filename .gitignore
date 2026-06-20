@@ -1,0 +1,80 @@
+# ============================================================
+# nextcloud-safe-html-viewer / .gitignore
+# 公開リポジトリ。private 情報・認証情報・ローカル専用ファイルを
+# 絶対にコミットしない。fresh public clone で成立する構成を維持する。
+# ============================================================
+
+# --- 依存パッケージ（都度インストール・追跡しない）---
+/node_modules/
+/vendor/
+# package-lock.json / composer.lock を追跡したい場合は次の2行を削除する。
+package-lock.json
+composer.lock
+
+# --- フロントエンドビルド生成物 ---
+# js/main.js は App Store / GitHub Releases の配布物に必要なため追跡する
+# （サーバー側でビルド手順を踏まなくてもアプリが動くように）。
+# source map と中間生成物のみ無視する。
+js/*.map
+js/*.js.map
+/build/
+/.cache/
+.eslintcache
+
+# --- Nextcloud アプリ配布アーカイブ（リリース時に生成・追跡しない）---
+/*.tar.gz
+/*.tar.gz.sig
+/*.tar.bz2
+
+# --- テスト・静的解析の生成物 ---
+/coverage/
+.phpunit.result.cache
+.php-cs-fixer.cache
+clover.xml
+
+# --- ログ・一時ファイル ---
+*.log
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# --- ローカル専用ドキュメント（plan / pending / session / reference 等・非公開）---
+docs/local/
+
+# --- ローカル専用ファイル（AI ツールのローカル設定・メモ）---
+.claude/
+CLAUDE.local.md
+AGENTS.local.md
+*.local.md
+*.local.json
+*.local
+*.local.*
+
+# --- 認証情報・secrets・鍵（public へ絶対に出さない）---
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.p12
+*.pfx
+*.ppk
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+secrets.*
+*.secret.*
+*credential*
+.netrc
+.npmrc
+.pypirc
+
+# --- OS / エディタ ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
