@@ -73,7 +73,8 @@ class ViewController extends Controller {
 		$redacted = $this->redactionService->redact($content);
 
 		$response = new DataDisplayResponse($redacted, 200, [
-			'Content-Type' => 'text/html; charset=utf-8',
+			'Content-Type'        => 'text/html; charset=utf-8',
+			'Content-Disposition' => 'inline',
 		]);
 
 		// The critical security header: sandbox without allow-same-origin
