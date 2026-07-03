@@ -7,8 +7,7 @@
 # --- 依存パッケージ（都度インストール・追跡しない）---
 /node_modules/
 /vendor/
-# package-lock.json / composer.lock を追跡したい場合は次の2行を削除する。
-package-lock.json
+# package-lock.json は release workflow の npm ci が必要とするため追跡する。
 composer.lock
 
 # --- フロントエンドビルド生成物 ---

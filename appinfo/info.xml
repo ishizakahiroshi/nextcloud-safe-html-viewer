@@ -17,13 +17,9 @@
 	<namespace>SafeHtmlViewer</namespace>
 	<category>files</category>
 	<bugs>https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/issues</bugs>
+	<screenshot>https://raw.githubusercontent.com/ishizakahiroshi/nextcloud-safe-html-viewer/main/screenshots/screenshot1.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/ishizakahiroshi/nextcloud-safe-html-viewer/main/screenshots/screenshot2.png</screenshot>
 	<dependencies>
 		<nextcloud min-version="28" max-version="33"/>
 	</dependencies>
-	<!--
-		Add fictional-data screenshots under screenshots/ and re-enable this element
-		before submitting to the Nextcloud App Store. Kept commented out while no image
-		exists so the public repo / App Store listing has no broken reference.
-	<screenshot>https://raw.githubusercontent.com/ishizakahiroshi/nextcloud-safe-html-viewer/main/screenshots/screenshot1.png</screenshot>
-	-->
 </info>
