@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-07-03
+
+### Fixed
+
+- App Store description rendered raw HTML tags as text: the App Store treats
+  `info.xml` description as Markdown, so the description is now written in
+  Markdown instead of HTML.
+
 ## [0.1.1] - 2026-07-03
 
 ### Changed
