@@ -24,12 +24,26 @@ registerFileAction({
 	order: -100,
 	exec: async (nodeOrCtx) => {
 		const node = nodeOrCtx?.nodes?.[0] ?? nodeOrCtx
-		const fileId = node?.fileid ?? node?.attributes?.fileid ?? (node?.id ? parseInt(node.id) : NaN)
-		if (!fileId || isNaN(fileId)) {
+		// Prefer fileid; fall back to id as digit string (avoid parseInt on large snowflake ids)
+		const rawId = node?.fileid ?? node?.attributes?.fileid ?? node?.id
+		if (rawId === undefined || rawId === null || rawId === '') {
 			return null
 		}
+		let fileId
+		if (typeof rawId === 'number') {
+			if (!Number.isFinite(rawId) || !Number.isInteger(rawId) || rawId <= 0) {
+				return null
+			}
+			fileId = rawId
+		} else {
+			const s = String(rawId)
+			if (!/^\d+$/.test(s) || s === '0') {
+				return null
+			}
+			fileId = s
+		}
 		const url = generateUrl(`/apps/${APP_ID}/raw/${fileId}`)
-		window.open(url, '_blank', 'noopener')
+		window.open(url, '_blank', 'noopener,noreferrer')
 		return null
 	},
 })

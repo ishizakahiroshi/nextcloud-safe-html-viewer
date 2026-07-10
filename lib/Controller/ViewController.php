@@ -10,10 +10,15 @@ use OCP\AppFramework\Http\DataDisplayResponse;
 use OCP\AppFramework\Http\Response;
 use OCP\Files\File;
 use OCP\Files\IRootFolder;
+use OCP\Files\NotFoundException;
+use OCP\Files\NotPermittedException;
 use OCP\IRequest;
 use OCP\IUserSession;
 
 class ViewController extends Controller {
+
+	/** Max preview size in bytes (MVP). Larger files are rejected to avoid memory/CPU DoS. */
+	public const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 
 	private IRootFolder $rootFolder;
 	private IUserSession $userSession;
@@ -48,8 +53,14 @@ class ViewController extends Controller {
 			return $this->errorResponse('Unauthorized', 401);
 		}
 
-		$userFolder = $this->rootFolder->getUserFolder($user->getUID());
-		$nodes = $userFolder->getById($fileId);
+		try {
+			$userFolder = $this->rootFolder->getUserFolder($user->getUID());
+			$nodes = $userFolder->getById($fileId);
+		} catch (NotFoundException | NotPermittedException $e) {
+			return $this->errorResponse('File not found or access denied', 404);
+		} catch (\Throwable $e) {
+			return $this->errorResponse('Unable to access file', 500);
+		}
 
 		if (count($nodes) === 0) {
 			return $this->errorResponse('File not found or access denied', 404);
@@ -60,15 +71,30 @@ class ViewController extends Controller {
 			return $this->errorResponse('Not a readable file', 403);
 		}
 
-		// Basic type guard (still serve .html even if mime detection is text/plain)
+		// Only HTML (and .htm) — matches the Files file action and product scope
 		$name = strtolower($node->getName());
 		$mime = $node->getMimeType();
 		$isHtml = str_ends_with($name, '.html')
+			|| str_ends_with($name, '.htm')
 			|| $mime === 'text/html'
 			|| $mime === 'application/xhtml+xml';
 
-		// For MVP we serve anyway if accessible (user explicitly clicked HTML file action)
-		$content = $node->getContent();
+		if (!$isHtml) {
+			return $this->errorResponse('Only HTML files can be previewed', 415);
+		}
+
+		$size = $node->getSize();
+		if ($size < 0 || $size > self::MAX_PREVIEW_BYTES) {
+			return $this->errorResponse('File too large for preview', 413);
+		}
+
+		try {
+			$content = $node->getContent();
+		} catch (NotFoundException | NotPermittedException $e) {
+			return $this->errorResponse('File not found or access denied', 404);
+		} catch (\Throwable $e) {
+			return $this->errorResponse('Unable to read file', 500);
+		}
 
 		$redacted = $this->redactionService->redact($content);
 
@@ -77,8 +103,12 @@ class ViewController extends Controller {
 			'Content-Disposition' => 'inline',
 		]);
 
-		// The critical security header: sandbox without allow-same-origin
-		$response->addHeader('Content-Security-Policy', 'sandbox allow-scripts allow-popups');
+		// Critical security header: sandbox without allow-same-origin.
+		// frame-ancestors/base-uri harden beyond sandbox alone (XFO remains as defense in depth).
+		$response->addHeader(
+			'Content-Security-Policy',
+			"sandbox allow-scripts allow-popups; frame-ancestors 'self'; base-uri 'none'"
+		);
 
 		// Extra hardening headers
 		$response->addHeader('X-Content-Type-Options', 'nosniff');
