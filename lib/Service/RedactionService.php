@@ -31,17 +31,60 @@ class RedactionService {
 			return $html;
 		}
 
+		// libxml's HTML parser ends a <script>/<style> body at any "</", not only at that
+		// element's own end tag, and discards the rest of the body. A closing tag written
+		// inside a JavaScript string ("<button><i></i>X</button>") therefore vanishes and
+		// every DOM the script builds afterwards comes out mis-nested; CSS loses the same
+		// way in content:"</td>". Those bodies are never redacted (see redactNode()), so
+		// they do not need to reach the DOM at all: they are stashed behind ASCII
+		// placeholders and put back verbatim after serialization.
+		//
+		// If a placeholder does not come back, the document is redone without stashing.
+		// libxml can put one where the placeholder stops being the body of its element —
+		// "<script src=\"a.js\"/>" is read as self-closing, which leaves the placeholder in
+		// the surrounding text where the long-token rule then redacts it — and serving that
+		// would delete the stashed body without a trace. The unstashed pass loses closing
+		// tags inside the body the way v0.1.3 did, but nothing disappears.
+		$out = $this->redactRoundtrip($html, true);
+		if ($out === null) {
+			$out = $this->redactRoundtrip($html, false);
+		}
+
+		// Fall back to simple text redaction if the document cannot be parsed at all.
+		return $out ?? $this->redactText($html);
+	}
+
+	/**
+	 * Run one parse / redact / serialize cycle over the document.
+	 *
+	 * @param bool $stashRawText hold <script>/<style> bodies out of the DOM
+	 *
+	 * @return string|null null when the cycle could not be completed: the document did not
+	 *   parse, serialization failed, or a stashed body did not survive the roundtrip
+	 */
+	private function redactRoundtrip(string $html, bool $stashRawText): ?string {
+		$rawTexts = [];
+		$rawTextMarker = null;
+		$parsable = $html;
+
+		if ($stashRawText) {
+			$rawTextMarker = self::makeMarker('SHVRAW', $html);
+			if ($rawTextMarker === null) {
+				return null;
+			}
+			$parsable = $this->stashRawTextBodies($html, $rawTextMarker, $rawTexts);
+		}
+
 		// Parse with DOMDocument (tolerate real-world HTML)
 		$dom = new \DOMDocument();
 		libxml_use_internal_errors(true);
 
 		// Prefix to force UTF-8 (stripped again after saveHTML)
-		$loaded = $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+		$loaded = $dom->loadHTML('<?xml encoding="utf-8" ?>' . $parsable, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
 		libxml_clear_errors();
 
 		if (!$loaded || $dom->childNodes->length === 0) {
-			// Fallback to simple text redaction if parse fails
-			return $this->redactText($html);
+			return null;
 		}
 
 		// LIBXML_HTML_NOIMPLIED can leave multiple top-level siblings;
@@ -50,15 +93,191 @@ class RedactionService {
 			$this->redactNode($child);
 		}
 
-		// Save; note: may not perfectly roundtrip all HTML5 but sufficient for preview
+		// Save; note: may not perfectly roundtrip all HTML5 but sufficient for preview.
+		// The collision check uses the original $html: it is a superset of everything that
+		// can still surface in the output, and the two marker prefixes cannot overlap.
 		$out = $this->saveHtmlPreservingNonAscii($dom, $html);
 		if ($out === null) {
-			return $this->redactText($html);
+			return null;
 		}
 
 		// Remove the encoding PI used only for loadHTML (must not appear in previews)
 		$out = str_replace('<?xml encoding="utf-8" ?>', '', $out);
-		return $out;
+
+		if ($rawTexts === []) {
+			return $out;
+		}
+
+		// Restored after the PI is gone, so a script that spells that PI out keeps it.
+		$restored = 0;
+		$out = $this->restoreRawTextBodies($out, (string)$rawTextMarker, $rawTexts, $restored);
+		return $restored === count($rawTexts) ? $out : null;
+	}
+
+	/**
+	 * Build an ASCII placeholder prefix that content in $source cannot impersonate.
+	 *
+	 * It is randomised rather than derived from the document on purpose: a fixed prefix
+	 * could be smuggled in entity-encoded ("&#83;HV..." parses to the literal marker text,
+	 * which a scan of the source string cannot see), and growing a marker until it no
+	 * longer occurs is quadratic in the document size — both were reachable from a
+	 * crafted upload. An unpredictable marker makes the collision unconstructible.
+	 *
+	 * @return string|null null when no free candidate was found (caller falls back to text mode)
+	 */
+	private static function makeMarker(string $prefix, string $source): ?string {
+		for ($attempt = 0; $attempt < 5; $attempt++) {
+			$candidate = $prefix . bin2hex(random_bytes(8));
+			if (!str_contains($source, $candidate)) {
+				return $candidate;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Replace every <script>/<style> body with an ASCII placeholder.
+	 *
+	 * The document has to be walked the way a tokenizer would rather than searched for the
+	 * bytes "<script": that sequence also occurs where HTML5 starts no element at all — in a
+	 * comment ("<!-- <script> tags removed for the export -->"), in an attribute value
+	 * ("<div data-tpl=\"<style>.x{}\">"), or in <textarea>/<title> text. Stashing from such a
+	 * position hands a span of the document back into the output unparsed, which skips
+	 * redaction over everything in it. So tags are consumed whole (their attribute values are
+	 * never looked into) and comment-like constructs are stepped over.
+	 *
+	 * Scanned by hand rather than with one expression for a second reason: a lazy body
+	 * pattern costs a full-document scan per start tag it cannot close, which a document full
+	 * of unclosed <script> turns into a stall (or a silent PCRE backtrack-limit abort that
+	 * would drop the protection exactly on the largest files).
+	 *
+	 * @param list<string> $bodies collected bodies, indexed by placeholder number
+	 */
+	private function stashRawTextBodies(string $html, string $marker, array &$bodies): string {
+		$out = '';
+		$emitted = 0;
+		$scan = 0;
+
+		while (($lt = strpos($html, '<', $scan)) !== false) {
+			$token = $this->readTag($html, $lt);
+			if ($token === null) {
+				// A construct that never closes. Where it ends decides where every following
+				// element sits, so guessing here is what produced the bypass described above.
+				break;
+			}
+
+			[$name, $isEndTag, $scan] = $token;
+			if ($name === null || $isEndTag) {
+				continue;
+			}
+
+			$name = strtolower($name);
+			$isRawText = $name === 'script' || $name === 'style';
+			if (!$isRawText && $name !== 'textarea' && $name !== 'title') {
+				continue;
+			}
+
+			// Everything up to this element's own end tag is text, not markup.
+			$bodyStart = $scan;
+			$bodyEnd = $this->findRawTextEnd($html, $name, $bodyStart);
+			if ($bodyEnd === null) {
+				// HTML5 runs an unclosed body to the end of the document. Stashing that far
+				// would exempt the whole tail from redaction, and there would be no end tag
+				// to hand it back at either, so scanning stops and libxml keeps the tail.
+				break;
+			}
+			$scan = $bodyEnd;
+
+			// <textarea>/<title> hold text too, but it is only skipped, never stashed: the
+			// point is that a "<script" written inside them is not read as a start tag.
+			if (!$isRawText || $bodyEnd === $bodyStart) {
+				continue;
+			}
+
+			$bodies[] = substr($html, $bodyStart, $bodyEnd - $bodyStart);
+			// Trailing "E" terminates the index so following digits stay literal.
+			$out .= substr($html, $emitted, $bodyStart - $emitted)
+				. $marker . (count($bodies) - 1) . 'E';
+			$emitted = $bodyEnd;
+		}
+
+		return $out . substr($html, $emitted);
+	}
+
+	/**
+	 * Read whatever construct starts at the "<" on offset $lt.
+	 *
+	 * @return array{0: ?string, 1: bool, 2: int}|null tag name (null when the construct opens
+	 *   no element), whether it is an end tag, and the offset just past the construct;
+	 *   null when the construct never closes
+	 */
+	private function readTag(string $html, int $lt): ?array {
+		$next = $html[$lt + 1] ?? '';
+
+		if ($next === '!' || $next === '?') {
+			// Comments, doctypes, and the bogus comments browsers make of "<![CDATA[" runs and
+			// of processing instructions all end without opening an element.
+			if (substr($html, $lt, 4) === '<!--') {
+				$end = strpos($html, '-->', $lt + 4);
+				return $end === false ? null : [null, false, $end + 3];
+			}
+			$end = strpos($html, '>', $lt + 2);
+			return $end === false ? null : [null, false, $end + 1];
+		}
+
+		// A quoted attribute value may contain ">", so the tag is consumed with an unrolled
+		// quote-aware loop instead of a plain [^>]* run. Anchored at $lt.
+		$isTagStart = $next === '/' || ($next !== '' && ctype_alpha($next));
+		if (preg_match('#<(/?)([a-zA-Z][^\s/>]*)[^>"\']*(?:(?:"[^"]*"|\'[^\']*\')[^>"\']*)*>#A', $html, $m, 0, $lt) !== 1) {
+			// A lone "<" is ordinary text; a tag whose ">" never arrives is unresolvable.
+			return $isTagStart ? null : [null, false, $lt + 1];
+		}
+
+		return [$m[2], $m[1] === '/', $lt + strlen($m[0])];
+	}
+
+	/**
+	 * Offset where a raw-text body ends, or null when the element is never closed.
+	 *
+	 * Follows the HTML5 rule that only this element's own end tag ends the body, so "</div>"
+	 * in a string literal is body text — that difference from libxml is the whole point of
+	 * stashing. The tag name must be followed by a tag terminator, so "</styles" is text too.
+	 */
+	private function findRawTextEnd(string $html, string $tag, int $from): ?int {
+		$needle = '</' . $tag;
+		$at = $from;
+
+		while (($at = stripos($html, $needle, $at)) !== false) {
+			$next = $html[$at + strlen($needle)] ?? '>';
+			if ($next === '>' || $next === '/' || preg_match('/\s/', $next) === 1) {
+				return $at;
+			}
+			$at += strlen($needle);
+		}
+
+		return null;
+	}
+
+	/**
+	 * @param list<string> $bodies
+	 * @param int $restored set to the number of placeholders that were substituted; the caller
+	 *   discards the whole pass unless it matches the number of bodies stashed
+	 */
+	private function restoreRawTextBodies(string $out, string $marker, array $bodies, int &$restored): string {
+		$restored = 0;
+
+		// One pass, so a restored body is never rescanned for further placeholders.
+		return preg_replace_callback(
+			'/' . $marker . '(\d+)E/',
+			static function (array $m) use ($bodies, &$restored): string {
+				if (!isset($bodies[(int)$m[1]])) {
+					return $m[0];
+				}
+				$restored++;
+				return $bodies[(int)$m[1]];
+			},
+			$out
+		) ?? $out;
 	}
 
 	/**
@@ -80,20 +299,7 @@ class RedactionService {
 	 * @return string|null null when serialization failed (caller falls back to text mode)
 	 */
 	private function saveHtmlPreservingNonAscii(\DOMDocument $dom, string $source): ?string {
-		// The placeholder must not collide with content already in the document. It is
-		// randomised rather than derived from the document on purpose: a fixed prefix
-		// could be smuggled in entity-encoded ("&#83;HVNONASCII0E" parses to the literal
-		// marker text, which a source scan cannot see), and growing a marker until it no
-		// longer occurs is quadratic in the document size — both were reachable from a
-		// crafted upload. An unpredictable marker makes the collision unconstructible.
-		$marker = null;
-		for ($attempt = 0; $attempt < 5; $attempt++) {
-			$candidate = 'SHVNA' . bin2hex(random_bytes(8));
-			if (!str_contains($source, $candidate)) {
-				$marker = $candidate;
-				break;
-			}
-		}
+		$marker = self::makeMarker('SHVNA', $source);
 		if ($marker === null) {
 			return null;
 		}
@@ -142,8 +348,10 @@ class RedactionService {
 	 * Replace non-ASCII runs in text, CDATA, comment nodes and attribute values with
 	 * ASCII placeholders, collecting the original runs in $runs (indexed by position).
 	 *
-	 * Unlike redactNode() this deliberately descends into <script>/<style>: their bodies
-	 * are escaped by saveHTML() too, and that is exactly what breaks non-Latin previews.
+	 * Unlike redactNode() this deliberately descends into <script>/<style>: saveHTML()
+	 * rewrites their attribute values too (a non-Latin media query comes back as numeric
+	 * references, a non-Latin src percent-encoded). Their bodies never reach the document
+	 * in the first place — stashRawTextBodies() holds those outside it.
 	 *
 	 * @param list<string> $runs
 	 */
