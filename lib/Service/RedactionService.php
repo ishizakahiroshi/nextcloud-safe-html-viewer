@@ -71,10 +71,22 @@ class RedactionService {
 	 * @return string|null null when serialization failed (caller falls back to text mode)
 	 */
 	private function saveHtmlPreservingNonAscii(\DOMDocument $dom, string $source): ?string {
-		// Placeholder must not collide with anything already present in the document.
-		$marker = 'SHVNONASCII';
-		while (str_contains($source, $marker)) {
-			$marker .= 'X';
+		// The placeholder must not collide with content already in the document. It is
+		// randomised rather than derived from the document on purpose: a fixed prefix
+		// could be smuggled in entity-encoded ("&#83;HVNONASCII0E" parses to the literal
+		// marker text, which a source scan cannot see), and growing a marker until it no
+		// longer occurs is quadratic in the document size — both were reachable from a
+		// crafted upload. An unpredictable marker makes the collision unconstructible.
+		$marker = null;
+		for ($attempt = 0; $attempt < 5; $attempt++) {
+			$candidate = 'SHVNA' . bin2hex(random_bytes(8));
+			if (!str_contains($source, $candidate)) {
+				$marker = $candidate;
+				break;
+			}
+		}
+		if ($marker === null) {
+			return null;
 		}
 
 		$runs = [];
@@ -90,9 +102,31 @@ class RedactionService {
 
 		return preg_replace_callback(
 			'/' . $marker . '(\d+)E/',
-			static fn (array $m): string => $runs[(int)$m[1]] ?? $m[0],
+			static fn (array $m): string => isset($runs[(int)$m[1]])
+				? self::reEncodeC1($runs[(int)$m[1]])
+				: $m[0],
 			$out
 		);
+	}
+
+	/**
+	 * Re-encode C1 code points (U+0080-U+009F) as numeric character references.
+	 *
+	 * These are unprintable controls in Unicode, but HTML5 requires parsers to map a
+	 * numeric reference in that range to the corresponding Windows-1252 character — so
+	 * "&#147;" renders as a curly quote, which is how Word and Outlook emit them.
+	 * Restoring such a run as raw UTF-8 would render nothing at all, so the reference
+	 * form (what libxml would have produced) is kept.
+	 */
+	private static function reEncodeC1(string $run): string {
+		if (!str_contains($run, "\xC2")) {
+			return $run;
+		}
+		return preg_replace_callback(
+			'/\xC2([\x80-\x9F])/',
+			static fn (array $m): string => '&#' . ord($m[1]) . ';',
+			$run
+		) ?? $run;
 	}
 
 	/**
@@ -117,11 +151,16 @@ class RedactionService {
 		}
 
 		if ($node->nodeType === XML_ELEMENT_NODE && $node->attributes !== null) {
+			/** @var \DOMElement $node */
 			foreach (iterator_to_array($node->attributes) as $attr) {
 				/** @var \DOMAttr $attr */
 				$masked = $this->maskNonAsciiString($attr->value, $marker, $runs);
 				if ($masked !== $attr->value) {
-					$attr->value = $masked;
+					// setAttribute() stores the string literally; assigning to
+					// DOMAttr::$value re-parses entity references instead, which decodes
+					// "&#12354;" written by the author and drops the whole value when it
+					// contains a bare "&".
+					$node->setAttribute($attr->name, $masked);
 				}
 			}
 		}

@@ -246,4 +246,51 @@ class RedactionServiceTest extends TestCase {
 		$this->assertStringContainsString('[REDACTED-PHONE]', $out);
 		$this->assertStringNotContainsString('090-1234-5678', $out);
 	}
+
+	public function testPlaceholderIsNotForgeableFromDocumentContent(): void {
+		// "&#83;HVNA..." parses into literal marker text that a scan of the source string
+		// cannot see, so a predictable placeholder would let a document swap its own
+		// content for an unrelated fragment.
+		$html = '<p>&#83;HVNA00000000000000000E と 日本語</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('SHVNA00000000000000000E', $out);
+		$this->assertStringContainsString('日本語', $out);
+	}
+
+	public function testPlaceholderSetupIsNotQuadraticInDocumentSize(): void {
+		// Growing a placeholder until it stops occurring rescanned the whole document on
+		// every step, so a crafted upload could pin a worker for hours.
+		$html = '<p>SHVNA' . str_repeat('0', 60000) . ' 日本語</p>';
+		$start = microtime(true);
+		$out = $this->service->redact($html);
+		$elapsed = microtime(true) - $start;
+		$this->assertStringContainsString('日本語', $out);
+		$this->assertLessThan(2.0, $elapsed);
+	}
+
+	public function testPreservesAmpersandsInAttributeValuesAlongsideNonAscii(): void {
+		// Assigning to DOMAttr::$value re-parses entities: a bare "&" wiped the whole
+		// attribute and "&#12354;" written by the author got decoded.
+		$html = '<img alt="a &amp; b 日本語" src="/x.png">';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('&amp;', $out);
+		$this->assertStringContainsString('日本語', $out);
+	}
+
+	public function testDoesNotDecodeAuthoredReferencesInAttributeValues(): void {
+		$html = '<img alt="&amp;#12354; 日本語" src="/x.png">';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('&amp;#12354;', $out);
+		$this->assertStringNotContainsString('あ', $out);
+	}
+
+	public function testKeepsC1ReferencesAsReferences(): void {
+		// HTML5 maps numeric references in U+0080-U+009F to Windows-1252, which is how
+		// Word and Outlook emit curly quotes. Emitting the raw code point renders nothing.
+		$html = '<p>&#147;quoted&#148; &#151; dash</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('&#147;', $out);
+		$this->assertStringContainsString('&#148;', $out);
+		$this->assertStringContainsString('&#151;', $out);
+	}
 }
