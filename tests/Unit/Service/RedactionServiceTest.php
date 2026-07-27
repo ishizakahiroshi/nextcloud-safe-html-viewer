@@ -334,6 +334,197 @@ class RedactionServiceTest extends TestCase {
 		$this->assertStringNotContainsString('[REDACTED]', $out);
 	}
 
+	public function testKeepsClosingTagsInsideScriptBody(): void {
+		// libxml ends a raw-text body at any "</", so closing tags written inside a JS
+		// string used to be dropped and every DOM built from them came out mis-nested.
+		$html = '<html><body><script>var t="<button><i></i>X</button>";</script></body></html>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('var t="<button><i></i>X</button>";', $out);
+	}
+
+	public function testKeepsClosingTagsInsideStyleBody(): void {
+		$html = '<html><head><style>.step::after{content:"</td>";}</style></head><body>x</body></html>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('content:"</td>";', $out);
+	}
+
+	public function testKeepsScriptBodyConsistingOnlyOfAClosingTag(): void {
+		// The whole body sat after the first "</" and vanished entirely.
+		$html = '<script>var t="</div>";</script>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('var t="</div>";', $out);
+	}
+
+	public function testKeepsClosingTagsAlongsideNonAsciiInsideScript(): void {
+		$html = '<script>var t="<button><i></i>ラベル</button>";</script>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('var t="<button><i></i>ラベル</button>";', $out);
+		$this->assertDoesNotMatchRegularExpression('/&#\d+;/', $out);
+	}
+
+	public function testKeepsBodyOfScriptWithAttributes(): void {
+		$html = '<script type="module" defer>const t="<td></td>";</script>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('const t="<td></td>";', $out);
+		$this->assertStringContainsString('type="module"', $out);
+	}
+
+	public function testKeepsBodyOfScriptWithGreaterThanInAttributeValue(): void {
+		// A quoted attribute value may contain ">", which a plain [^>]* run would cut at.
+		$html = '<script data-sel="li > a">var t="</span>";</script>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('var t="</span>";', $out);
+	}
+
+	public function testKeepsEscapedScriptEndTagInsideScript(): void {
+		$html = '<script>var t="<\/script>";</script><p>a@b.co</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('var t="<\/script>";', $out);
+		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
+	}
+
+	public function testStillRedactsAfterUnescapedScriptEndTagInsideString(): void {
+		// HTML5 ends the element at the first "</script>" even inside a string literal, so
+		// the remainder is markup. The preview must stay intact and keep redacting.
+		$html = '<script>var t="</script>";</script><p>a@b.co</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
+		$this->assertStringNotContainsString('a@b.co', $out);
+	}
+
+	public function testDoesNotEndScriptBodyAtASimilarlyNamedTag(): void {
+		// "</scriptx" is body text: only the element's own end tag terminates it.
+		$html = '<script>var t="</scriptx>" + "</i>";</script>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('var t="</scriptx>" + "</i>";', $out);
+	}
+
+	public function testKeepsBodyOfScriptWithoutSecretsUntouchedNextToSiblings(): void {
+		$html = '<script>el.innerHTML="<tr><td>a</td></tr>";</script><p>password=supersecret99</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('el.innerHTML="<tr><td>a</td></tr>";', $out);
+		$this->assertStringContainsString('password=[REDACTED]', $out);
+	}
+
+	public function testRawTextPlaceholderShapedTextIsServedUnchanged(): void {
+		// Text that looks like a placeholder must survive as written. (That a real placeholder
+		// cannot be forged rests on random_bytes() and is not observable from outside.)
+		// Kept just under 24 characters so the long-token heuristic does not claim it first.
+		$html = '<p>&#83;HVRAW0000000000000000E</p><script>var t="</i>";</script>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('SHVRAW0000000000000000E', $out);
+		$this->assertStringContainsString('var t="</i>";', $out);
+	}
+
+	public function testPlaceholderNeverLeaksIntoTheOutput(): void {
+		// Whatever happens to a placeholder, it must not reach the browser as text.
+		$documents = [
+			'<script>var t="</i>";</script>',
+			'<html><body><script src="a.js"/><p>x</p><script>var t="</i>";</script></body></html>',
+			'<style/><style>.a{content:"</td>"}</style>',
+			'<div title="<script>"><script>var t="</i>";</script></div>',
+			'<textarea><script>a</textarea><script>var t="</i>";</script>',
+		];
+		foreach ($documents as $html) {
+			$out = $this->service->redact($html);
+			$this->assertStringNotContainsString('SHVRAW', $out);
+			$this->assertStringNotContainsString('SHVNA', $out);
+		}
+	}
+
+	public function testSelfClosingScriptDoesNotSwallowTheDocument(): void {
+		// libxml reads "<script src=... />" as self-closing, which leaves the placeholder in
+		// the surrounding text where the long-token rule redacts it. Restoring then found
+		// nothing and the whole tail of the document disappeared.
+		$html = '<html><body><script src="a.js"/><h1>Report</h1><p>a@b.co</p>'
+			. '<script>var t="</i>";</script></body></html>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('Report', $out);
+		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
+		$this->assertStringNotContainsString('[REDACTED-SECRET]', $out);
+	}
+
+	public function testSelfClosingStyleDoesNotSwallowTheDocument(): void {
+		$html = '<html><body><style/><h1>Report</h1><p>a@b.co</p>'
+			. '<style>.a{content:"</td>"}</style></body></html>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('Report', $out);
+		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
+	}
+
+	public function testRedactsAfterACommentMentioningAScriptTag(): void {
+		// "<script" inside a comment opens no element. Reading it as one stashed the rest of
+		// the document, which both skipped redaction over it and left libxml an unterminated
+		// comment — the preview came back as an empty <body>.
+		$html = '<html><body><!-- <script> tags removed for the export -->'
+			. '<h1>Minutes</h1><p>secret@example.com</p></body></html>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
+		$this->assertStringNotContainsString('secret@example.com', $out);
+		$this->assertStringContainsString('Minutes', $out);
+	}
+
+	public function testRedactsAfterAnAttributeValueMentioningAStyleTag(): void {
+		// Same bypass through an attribute value: authoring tools park HTML snippets in
+		// data-* / title attributes all the time.
+		$html = '<html><body><div data-tpl="<style>.x{}"><b>Row</b></div>'
+			. '<p>token=abcd1234efgh</p></body></html>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('token=[REDACTED]', $out);
+		$this->assertStringNotContainsString('abcd1234efgh', $out);
+	}
+
+	public function testRedactsAfterTextareaContainingAStyleTag(): void {
+		// <textarea> holds text, so the tag inside it is not an element either.
+		$html = '<textarea><style>body{}</textarea><p>a@b.co</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
+		$this->assertStringNotContainsString('a@b.co', $out);
+	}
+
+	public function testKeepsRealScriptBodyDespiteAScriptTagInAnAttribute(): void {
+		$html = '<div title="<script>"><p>a@b.co</p></div><script>var t="</i>";</script>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
+		$this->assertStringContainsString('var t="</i>";', $out);
+	}
+
+	public function testDoesNotStashPastAnUnclosedRawTextElement(): void {
+		// HTML5 runs an unclosed body to the end of the document, but stashing that far would
+		// exempt the whole tail from redaction, so the tail is deliberately left to libxml.
+		$html = '<html><body><p>a@b.co</p><script>var t="</i>";';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
+		$this->assertStringNotContainsString('a@b.co', $out);
+	}
+
+	public function testUnclosedScriptDoesNotStall(): void {
+		// Searching for an end tag that never comes must not cost one scan per start tag.
+		$html = '<html><body>' . str_repeat('<script>', 2000) . str_repeat('x', 200000);
+		$start = microtime(true);
+		$out = $this->service->redact($html);
+		$elapsed = microtime(true) - $start;
+		$this->assertNotSame('', $out);
+		$this->assertLessThan(2.0, $elapsed);
+	}
+
+	public function testManyScriptBlocksStayLinear(): void {
+		$html = '<html><body>' . str_repeat('<script>var t="</i>";</script>', 2000) . '</body></html>';
+		$start = microtime(true);
+		$out = $this->service->redact($html);
+		$elapsed = microtime(true) - $start;
+		$this->assertSame(2000, substr_count($out, 'var t="</i>";'));
+		$this->assertLessThan(5.0, $elapsed);
+	}
+
+	public function testKeepsXmlEncodingPiWrittenInsideScript(): void {
+		// The PI is stripped from the serialized output; a script that spells it out as a
+		// string must not lose it to that cleanup.
+		$html = '<script>var pi = \'<?xml encoding="utf-8" ?>\';</script>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('<?xml encoding="utf-8" ?>', $out);
+	}
+
 	public function testKeepsC1ReferencesAsReferences(): void {
 		// HTML5 maps numeric references in U+0080-U+009F to Windows-1252, which is how
 		// Word and Outlook emit curly quotes. Emitting the raw code point renders nothing.
