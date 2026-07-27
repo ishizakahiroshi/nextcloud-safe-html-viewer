@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-07-27
+
+### Fixed
+
+- Non-ASCII content (Japanese, other non-Latin scripts, emoji) was served as decimal
+  numeric character references. `DOMDocument::saveHTML()` escapes every code point
+  >= 0x80, and browsers do not decode those inside `<script>` / `<style>` bodies, so
+  previews of pages that build labels in JavaScript or set CSS `content` rendered raw
+  `&#21517;` text and broken layout. Non-ASCII runs are now placeholder-swapped around
+  serialization, so the served preview keeps the original UTF-8.
+- ISO dates in prose were redacted as phone numbers. The phone pattern allows spaces
+  and parentheses, so a match carried its surrounding padding and the ISO-date guard
+  never fired: `検証資料 2026-07-17` became `検証資料[REDACTED-PHONE]`. Padding is now
+  split off before the date check and re-emitted, which also preserves the spacing
+  around genuinely redacted phone numbers.
+- Redaction walked only the first top-level node, so content following a `<script>` or
+  `<style>` sibling was served unredacted.
+- The `<?xml encoding="utf-8" ?>` prefix used to force UTF-8 parsing leaked into previews.
+- Credential patterns (`password=`, `token=`, ...) were only matched inside query
+  strings, and the replacement dropped the parameter name.
+- Long-token heuristic no longer swallows a host plus path as a single secret.
+- Private/localhost URL matching required a real host boundary, so public hosts such as
+  `internal.example.com` are no longer treated as private.
+- Bare IPv4 redaction no longer overrides the `[REDACTED-PRIVATE-URL]` label.
+
+### Changed
+
+- The preview endpoint now serves HTML only (`.html` / `.htm` / `text/html` /
+  `application/xhtml+xml`) and returns 415 otherwise, rejects files over 5 MiB with 413,
+  and maps file-access failures to 404/500 instead of surfacing an exception.
+- Content-Security-Policy is extended with `frame-ancestors 'self'; base-uri 'none'`
+  alongside the existing `sandbox allow-scripts allow-popups` (still no `allow-same-origin`).
+- File action id handling accepts large numeric ids as strings instead of `parseInt`,
+  and preview tabs are opened with `noopener,noreferrer`.
+
 ## [0.1.2] - 2026-07-03
 
 ### Fixed

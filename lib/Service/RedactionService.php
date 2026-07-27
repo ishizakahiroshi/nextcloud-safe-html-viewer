@@ -42,14 +42,114 @@ class RedactionService {
 		}
 
 		// Save; note: may not perfectly roundtrip all HTML5 but sufficient for preview
-		$out = $dom->saveHTML();
-		if ($out === false) {
+		$out = $this->saveHtmlPreservingNonAscii($dom, $html);
+		if ($out === null) {
 			return $this->redactText($html);
 		}
 
 		// Remove the encoding PI used only for loadHTML (must not appear in previews)
 		$out = str_replace('<?xml encoding="utf-8" ?>', '', $out);
 		return $out;
+	}
+
+	/**
+	 * Serialize the document without letting libxml mangle non-ASCII content.
+	 *
+	 * DOMDocument::saveHTML() escapes every code point >= 0x80 as a decimal numeric
+	 * character reference ("択" -> "&#25246;"), even though the document was loaded as
+	 * UTF-8 (setting $dom->encoding does not change this). Browsers decode those inside
+	 * markup, but not inside <script>/<style> bodies, so Japanese previews break visibly.
+	 *
+	 * Decoding the references back afterwards is not viable: a literal "&#8364;" written
+	 * in the source is indistinguishable from an escaped one, and libxml passes invalid
+	 * references inside raw-text elements straight through, where mb_chr() fails on them.
+	 *
+	 * So every run of non-ASCII bytes is swapped for an ASCII placeholder before
+	 * serializing and restored afterwards. libxml then has nothing to escape, and the
+	 * restored runs contain no HTML-significant characters, so no context needs quoting.
+	 *
+	 * @return string|null null when serialization failed (caller falls back to text mode)
+	 */
+	private function saveHtmlPreservingNonAscii(\DOMDocument $dom, string $source): ?string {
+		// Placeholder must not collide with anything already present in the document.
+		$marker = 'SHVNONASCII';
+		while (str_contains($source, $marker)) {
+			$marker .= 'X';
+		}
+
+		$runs = [];
+		$this->maskNonAscii($dom, $marker, $runs);
+
+		$out = $dom->saveHTML();
+		if ($out === false) {
+			return null;
+		}
+		if ($runs === []) {
+			return $out;
+		}
+
+		return preg_replace_callback(
+			'/' . $marker . '(\d+)E/',
+			static fn (array $m): string => $runs[(int)$m[1]] ?? $m[0],
+			$out
+		);
+	}
+
+	/**
+	 * Replace non-ASCII runs in text, CDATA, comment nodes and attribute values with
+	 * ASCII placeholders, collecting the original runs in $runs (indexed by position).
+	 *
+	 * Unlike redactNode() this deliberately descends into <script>/<style>: their bodies
+	 * are escaped by saveHTML() too, and that is exactly what breaks non-Latin previews.
+	 *
+	 * @param list<string> $runs
+	 */
+	private function maskNonAscii(\DOMNode $node, string $marker, array &$runs): void {
+		if ($node->nodeType === XML_TEXT_NODE
+			|| $node->nodeType === XML_CDATA_SECTION_NODE
+			|| $node->nodeType === XML_COMMENT_NODE) {
+			$value = $node->nodeValue ?? '';
+			$masked = $this->maskNonAsciiString($value, $marker, $runs);
+			if ($masked !== $value) {
+				$node->nodeValue = $masked;
+			}
+			return;
+		}
+
+		if ($node->nodeType === XML_ELEMENT_NODE && $node->attributes !== null) {
+			foreach (iterator_to_array($node->attributes) as $attr) {
+				/** @var \DOMAttr $attr */
+				$masked = $this->maskNonAsciiString($attr->value, $marker, $runs);
+				if ($masked !== $attr->value) {
+					$attr->value = $masked;
+				}
+			}
+		}
+
+		foreach (iterator_to_array($node->childNodes) as $child) {
+			$this->maskNonAscii($child, $marker, $runs);
+		}
+	}
+
+	/**
+	 * @param list<string> $runs
+	 */
+	private function maskNonAsciiString(string $value, string $marker, array &$runs): string {
+		if ($value === '' || preg_match('/[\x80-\xFF]/', $value) !== 1) {
+			return $value;
+		}
+
+		// Byte-based on purpose: a run stays intact regardless of whether the input is
+		// valid UTF-8, and contains no ASCII (so no HTML-significant) characters.
+		return preg_replace_callback(
+			'/[\x80-\xFF]+/',
+			static function (array $m) use ($marker, &$runs): string {
+				$runs[] = $m[0];
+				// Trailing "E" terminates the index so following digits stay literal.
+				return $marker . (count($runs) - 1) . 'E';
+			},
+			$value
+		) ?? $value;
 	}
 
 	private function redactNode(\DOMNode $node): void {
@@ -100,14 +200,23 @@ class RedactionService {
 
 		// 2. Phone numbers (loose international / JP / US style).
 		// Skip pure ISO dates (e.g. 2024-01-15) which otherwise false-positive.
+		// The character class allows spaces and parentheses, so a match can carry
+		// leading padding ("... (2026-07-17"). That padding has to be split off before
+		// the date check, otherwise dates in prose are misread as phone numbers; it is
+		// re-emitted afterwards so surrounding spacing is preserved.
 		$text = preg_replace_callback(
 			'/(?<!\w)(?:\+?[\d\s\-()]{7,}\d)(?!\w)/',
 			static function (array $m): string {
+				$lead = '';
 				$s = $m[0];
-				if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $s) === 1) {
-					return $s;
+				if (preg_match('/^[\s(]+/', $s, $pad) === 1) {
+					$lead = $pad[0];
+					$s = substr($s, strlen($lead));
 				}
-				return '[REDACTED-PHONE]';
+				if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $s) === 1) {
+					return $m[0];
+				}
+				return $lead . '[REDACTED-PHONE]';
 			},
 			$text
 		) ?? $text;
