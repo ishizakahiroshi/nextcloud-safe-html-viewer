@@ -277,8 +277,12 @@ class RedactionService {
 
 		// 5. Common credential patterns (query string, attributes, bare key=value).
 		// Capturing group required so $1 keeps the parameter name.
+		// The value is restricted to ASCII and bounded in length: credentials are ASCII in
+		// practice, and Japanese prose has no ASCII whitespace to stop at, so an unbounded
+		// class swallowed the rest of the text node — "本節では auth: の考え方を説明します。"
+		// collapsed to "本節では auth=[REDACTED]".
 		$text = preg_replace(
-			'/\b(password|passwd|pwd|token|api[_-]?key|secret|auth|bearer)[=:]\s*[^&\s<>"\']{3,}/i',
+			'/\b(password|passwd|pwd|token|api[_-]?key|secret|auth|bearer)[=:][ \t]*[^&\s<>"\'\x80-\xFF]{3,256}/i',
 			'$1=[REDACTED]',
 			$text
 		) ?? $text;
