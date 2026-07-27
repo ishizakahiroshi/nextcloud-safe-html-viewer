@@ -105,7 +105,16 @@ vendor/bin/phpunit
 
 AGPL-3.0-or-later
 
-See [LICENSE](./LICENSE).
+Copyright (C) 2026 Hiroshi Ishizaka (ishizakahiroshi)
+
+[LICENSE](./LICENSE) carries the full text of the GNU Affero General Public License,
+version 3. The "source code" of this app means every PHP, JavaScript, CSS and other
+file required to build and run it.
+
+`js/main.js` is a webpack bundle, so the release tarball also contains third-party code
+under its own licenses. Those are listed in [NOTICES.md](./NOTICES.md) (regenerate with
+`npm run notices`), and the license banners webpack extracted ship next to the bundle in
+`js/main.js.LICENSE.txt`.
 
 ## Security
 
