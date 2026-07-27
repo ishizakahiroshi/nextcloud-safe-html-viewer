@@ -21,10 +21,12 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(ROOT, 'NOTICES.md')
 const WORK = join(ROOT, 'node_modules', '.cache', 'notices')
 
-const LICENCE_FILES = [
-	'LICENSE', 'LICENSE.md', 'LICENSE.txt', 'LICENCE', 'LICENCE.md', 'LICENCE.txt',
-	'COPYING', 'COPYING.md', 'COPYING.txt',
-]
+// Matched against the directory listing rather than probed with existsSync: Windows
+// resolves paths case-insensitively, so `is-svg` (which ships lowercase `license`) was
+// found there and missed on Linux, and NOTICES.md came out different per platform.
+const LICENCE_NAME = /^(?:licen[cs]e|copying)(?:[-._].*)?$/i
+// "license-check.js" and friends are code, not a notice.
+const NOT_A_NOTICE = /\.(?:js|mjs|cjs|ts|json|map|lock|ya?ml)$/i
 
 function bundledPackages() {
 	rmSync(WORK, { recursive: true, force: true })
@@ -69,22 +71,32 @@ function readText(path) {
 	return readFileSync(path, 'utf8').replace(/\r\n/g, '\n').trimEnd()
 }
 
-/** Licence texts a package ships: a top-level file, or a REUSE-style LICENSES/ directory. */
+/**
+ * Every licence text a package ships: top-level notice files plus a REUSE-style
+ * LICENSES/ directory. All of them, not just the first — a dual-licensed package such
+ * as dompurify ships LICENSE and LICENSE-MPL and both apply.
+ */
 function licenceTexts(dir) {
 	const found = []
-	for (const name of LICENCE_FILES) {
+	const entries = readdirSync(dir).sort()
+
+	for (const name of entries) {
 		const path = join(dir, name)
-		if (existsSync(path) && statSync(path).isFile()) {
+		if (!statSync(path).isFile()) {
+			continue
+		}
+		if (LICENCE_NAME.test(name) && !NOT_A_NOTICE.test(name)) {
 			found.push({ source: name, text: readText(path) })
-			break
 		}
 	}
-	const reuse = join(dir, 'LICENSES')
-	if (existsSync(reuse) && statSync(reuse).isDirectory()) {
-		for (const name of readdirSync(reuse).sort()) {
-			found.push({ source: `LICENSES/${name}`, text: readText(join(reuse, name)) })
+
+	const reuseDir = entries.find((name) => name.toLowerCase() === 'licenses')
+	if (reuseDir !== undefined && statSync(join(dir, reuseDir)).isDirectory()) {
+		for (const name of readdirSync(join(dir, reuseDir)).sort()) {
+			found.push({ source: `${reuseDir}/${name}`, text: readText(join(dir, reuseDir, name)) })
 		}
 	}
+
 	return found
 }
 
