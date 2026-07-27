@@ -89,4 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sandbox is intentionally restrictive.
 - Redaction is documented as best-effort (see README and SECURITY.md).
 
+[0.1.3]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.3
+[0.1.2]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.2
+[0.1.1]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.0
