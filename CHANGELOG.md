@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-07-27
+
+### Fixed
+
+- Closing tags written inside a `<script>` or `<style>` body were deleted from the
+  preview. libxml's HTML parser ends a raw-text body at any `</`, not only at the
+  element's own end tag, and drops the rest of it, so
+  `var t = "<button><i></i>X</button>"` arrived as `var t = "<button><i>X"`. Every DOM
+  the script then built came out mis-nested and the layout collapsed; CSS lost
+  `content: "</td>"` the same way. Raw-text bodies are now held out of the document
+  while it is parsed and put back verbatim afterwards. Present since 0.1.0, hidden
+  behind the non-ASCII corruption that 0.1.3 fixed.
+- A `<script>` body that spelled out the internal `<?xml encoding="utf-8" ?>` parsing
+  prefix lost that string, because the prefix was stripped from the serialized document
+  only after the body had been reinserted.
+
+### Added
+
+- `NOTICES.md` lists the third-party licenses that travel inside the `js/main.js` bundle.
+  The list is taken from a webpack stats run, so it is what the bundle actually holds
+  after tree shaking (17 packages) rather than the whole dependency closure (59).
+  Regenerate with `npm run notices`; `npm run notices:check` fails when it is stale.
+
+### Changed
+
+- `LICENSE` now holds the full text of the GNU Affero General Public License, version 3.
+  It previously contained only the "how to apply" notice and a link to the text, so no
+  copy of the license travelled with the release tarball even though that notice says one
+  did — and GitHub could not identify the license either. The copyright line and the
+  definition of this app's "source code" moved to the License section of the README.
+
 ## [0.1.3] - 2026-07-27
 
 ### Fixed
@@ -89,6 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sandbox is intentionally restrictive.
 - Redaction is documented as best-effort (see README and SECURITY.md).
 
+[0.1.4]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.1
