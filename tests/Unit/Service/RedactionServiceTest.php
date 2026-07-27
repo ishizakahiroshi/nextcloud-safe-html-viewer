@@ -284,6 +284,15 @@ class RedactionServiceTest extends TestCase {
 		$this->assertStringNotContainsString('あ', $out);
 	}
 
+	public function testCredentialRuleDoesNotSwallowNonAsciiProse(): void {
+		// Japanese has no ASCII whitespace for the value pattern to stop at, so an
+		// unbounded class consumed the rest of the text node and deleted the paragraph.
+		$html = '<p>本節では auth: の考え方を説明します。認証はSAMLで行います。</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('認証はSAMLで行います。', $out);
+		$this->assertStringNotContainsString('[REDACTED]', $out);
+	}
+
 	public function testKeepsC1ReferencesAsReferences(): void {
 		// HTML5 maps numeric references in U+0080-U+009F to Windows-1252, which is how
 		// Word and Outlook emit curly quotes. Emitting the raw code point renders nothing.

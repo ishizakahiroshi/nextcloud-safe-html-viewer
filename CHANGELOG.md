@@ -24,7 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<style>` sibling was served unredacted.
 - The `<?xml encoding="utf-8" ?>` prefix used to force UTF-8 parsing leaked into previews.
 - Credential patterns (`password=`, `token=`, ...) were only matched inside query
-  strings, and the replacement dropped the parameter name.
+  strings, and the replacement dropped the parameter name. The value is now matched
+  as bounded ASCII, so prose in scripts without ASCII word breaks (Japanese, Chinese)
+  is not swallowed up to the end of the text node.
 - Long-token heuristic no longer swallows a host plus path as a single secret.
 - Private/localhost URL matching required a real host boundary, so public hosts such as
   `internal.example.com` are no longer treated as private.
