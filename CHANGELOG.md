@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never fired: `検証資料 2026-07-17` became `検証資料[REDACTED-PHONE]`. Padding is now
   split off before the date check and re-emitted, which also preserves the spacing
   around genuinely redacted phone numbers.
+- A leading UTF-8 BOM made the preview come back empty. The BOM ended up between the
+  internal encoding declaration and the document, so parsing stopped right after it —
+  which hit every file written by an editor that emits a BOM by default (Notepad,
+  Excel's web export, PowerShell's `ConvertTo-Html`).
+- Base64 `data:` URI payloads were redacted as opaque secrets, blanking out inline
+  images. Such a payload is encoded binary, so the heuristics cannot recognise a secret
+  in it but do match it by accident; base64 data URIs are now passed through. Data URIs
+  that are not base64 stay in scope, since those carry readable text.
 - Redaction walked only the first top-level node, so content following a `<script>` or
   `<style>` sibling was served unredacted.
 - The `<?xml encoding="utf-8" ?>` prefix used to force UTF-8 parsing leaked into previews.

@@ -284,6 +284,47 @@ class RedactionServiceTest extends TestCase {
 		$this->assertStringNotContainsString('あ', $out);
 	}
 
+	public function testPreviewSurvivesLeadingUtf8Bom(): void {
+		// The BOM landed between the encoding PI and the document, so libxml stopped
+		// after it and the preview came back empty. Notepad, Excel's web export and
+		// PowerShell's ConvertTo-Html all emit a BOM by default.
+		$html = "\xEF\xBB\xBF<!DOCTYPE html><html><head><title>T</title></head>"
+			. '<body><p>レポート本文</p></body></html>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('レポート本文', $out);
+		$this->assertStringNotContainsString("\xEF\xBB\xBF", $out);
+	}
+
+	public function testDoesNotRedactBase64DataUriPayload(): void {
+		// The payload reads as an opaque token to the long-string heuristic, which
+		// replaced the image data and blanked out every inline image.
+		$payload = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+		$html = '<p>説明文</p><img src="data:image/png;base64,' . $payload . '">';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString($payload, $out);
+		$this->assertStringNotContainsString('[REDACTED-SECRET]', $out);
+	}
+
+	public function testStillRedactsSecretsOutsideDataUris(): void {
+		// The data: exemption must not spill over into the surrounding text.
+		$payload = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+		$html = '<html><body><p>a@b.co</p>'
+			. '<img src="data:image/png;base64,' . $payload . '">'
+			. '<p>password=supersecret99</p></body></html>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString($payload, $out);
+		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
+		$this->assertStringContainsString('password=[REDACTED]', $out);
+	}
+
+	public function testStillRedactsPlainTextDataUri(): void {
+		// Only base64 payloads are exempt; a readable data: URI stays in scope.
+		$html = '<p>data:text/plain,password=supersecret99</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('password=[REDACTED]', $out);
+		$this->assertStringNotContainsString('supersecret99', $out);
+	}
+
 	public function testCredentialRuleDoesNotSwallowNonAsciiProse(): void {
 		// Japanese has no ASCII whitespace for the value pattern to stop at, so an
 		// unbounded class consumed the rest of the text node and deleted the paragraph.

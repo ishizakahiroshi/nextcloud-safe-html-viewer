@@ -17,6 +17,15 @@ class RedactionService {
 	 * Redact the provided HTML string.
 	 */
 	public function redact(string $html): string {
+		// A leading UTF-8 BOM would end up between the encoding PI below and the document,
+		// which makes libxml stop right after it and return an otherwise empty preview.
+		// Editors that default to BOM (Notepad, Excel's web export, PowerShell's
+		// ConvertTo-Html) hit this on every file. The PI already forces UTF-8, and the
+		// response declares charset=utf-8, so the BOM carries no information here.
+		if (str_starts_with($html, "\xEF\xBB\xBF")) {
+			$html = substr($html, 3);
+		}
+
 		$trimmed = trim($html);
 		if ($trimmed === '') {
 			return $html;
@@ -227,9 +236,41 @@ class RedactionService {
 	}
 
 	/**
-	 * Apply textual redactions (order matters for overlapping patterns).
+	 * Apply textual redactions, leaving base64 `data:` URI payloads alone.
+	 *
+	 * Such a payload is encoded binary, not prose: the heuristics below cannot recognise
+	 * a secret inside it, but they do match it by accident — a run of digits reads as a
+	 * phone number and the payload as a whole reads as an opaque token — which replaces
+	 * the image data and blanks out every inline image in the document. Data URIs that
+	 * are not base64 stay in scope, since those carry readable text.
 	 */
 	private function redactText(string $text): string {
+		if (stripos($text, ';base64,') === false) {
+			return $this->redactPatterns($text);
+		}
+
+		$parts = preg_split(
+			'/(data:[^\s"\'<>,)]*;base64,[A-Za-z0-9+\/=%]*)/i',
+			$text,
+			-1,
+			PREG_SPLIT_DELIM_CAPTURE
+		);
+		if ($parts === false) {
+			return $this->redactPatterns($text);
+		}
+
+		$out = '';
+		foreach ($parts as $i => $part) {
+			// Odd indices are the captured data: URIs; everything else is ordinary text.
+			$out .= ($i % 2 === 1) ? $part : $this->redactPatterns($part);
+		}
+		return $out;
+	}
+
+	/**
+	 * Apply textual redactions (order matters for overlapping patterns).
+	 */
+	private function redactPatterns(string $text): string {
 		// 1. Email addresses
 		$text = preg_replace(
 			'/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/',
