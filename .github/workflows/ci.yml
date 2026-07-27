@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  php:
+    name: PHP ${{ matrix.php }}
+    # Pinned to 24.04 on purpose: its libxml is 2.9.14, the same as the servers this
+    # app runs on. RedactionService rides on DOMDocument, whose escaping and raw-text
+    # handling differ between libxml releases, so a green run on another image would
+    # not say much about production.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # 8.1 is the floor Nextcloud 28+ and PHPUnit 10 share; 8.3 is what the
+        # servers run.
+        php: ['8.1', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, libxml, mbstring
+          coverage: none
+
+      - name: Report PHP and libxml versions
+        run: |
+          php -v
+          php -r 'printf("libxml %s\n", LIBXML_DOTTED_VERSION);'
+          want=2.9.14
+          got=$(php -r 'echo LIBXML_DOTTED_VERSION;')
+          if [ "$got" != "$want" ]; then
+            echo "::warning title=libxml drift::runner has libxml $got, servers have $want. DOMDocument behaviour can differ; re-check the redaction tests against a server before releasing."
+          fi
+          echo "PHP $(php -r 'echo PHP_VERSION;') / libxml $got" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Lint every PHP file
+        run: find lib tests -name '*.php' -print0 | xargs -0 -n1 -P4 php -l
+
+      - name: Install Composer dependencies
+        # No composer.lock is tracked, so this resolves within the constraints in
+        # composer.json rather than reproducing a pinned set.
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: PHPUnit
+        run: vendor/bin/phpunit --colors=never
+
+  js:
+    name: JS bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Verify the committed bundle matches a fresh build
+        # js/main.js is tracked and shipped in the release tarball, so it can drift
+        # away from js/src/main.js or from the locked dependencies without anything
+        # noticing. Build into a temp directory and compare byte for byte.
+        run: |
+          npx webpack --mode production --output-path "$RUNNER_TEMP/bundle"
+          cmp "$RUNNER_TEMP/bundle/main.js" js/main.js
+          cmp "$RUNNER_TEMP/bundle/main.js.LICENSE.txt" js/main.js.LICENSE.txt
+
+      - name: Verify NOTICES.md is current
+        # Fails when a bundled dependency changed without NOTICES.md being
+        # regenerated (npm run notices).
+        run: npm run notices:check
