@@ -43,6 +43,7 @@ docs/local/
 
 # --- ローカル専用ファイル（AI ツールのローカル設定・メモ）---
 .claude/
+.cursor/
 CLAUDE.local.md
 AGENTS.local.md
 *.local.md
