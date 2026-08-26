@@ -538,12 +538,67 @@ class RedactionService {
 
 		// 6. Long opaque token-like strings (base64-ish, jwt-ish, etc) - heuristic.
 		// Do not include '/' so URL paths are not swallowed as one token.
-		$text = preg_replace(
+		//
+		// Length alone is not enough. '_' and '-' are in the class, so kebab/snake_case
+		// identifiers match as one token, and technical documents are full of them:
+		// file names, slugs, branch names, constants. Those read as secrets and the
+		// reader loses the very thing the document points at — including, for a document
+		// long enough to name itself, its own file name.
+		// So the length filter picks candidates and readsLikeIdentifier() lets the
+		// readable ones through. See docs/local/bugfix_redaction-long-identifiers-*.md.
+		$text = preg_replace_callback(
 			'/\b[A-Za-z0-9+_=-]{24,}\b/',
-			'[REDACTED-SECRET]',
+			fn (array $m): string => $this->readsLikeIdentifier($m[0]) ? $m[0] : '[REDACTED-SECRET]',
 			$text
 		) ?? $text;
 
 		return $text;
+	}
+
+	/**
+	 * Whether a token that passed the length filter reads as a human-written identifier
+	 * rather than an opaque secret.
+	 *
+	 * Deliberately strict: a miss here leaks a secret, while a false exemption only
+	 * costs one unredacted identifier. Every part has to look written, not generated.
+	 *
+	 *   reference_developer-identity      -> true  (three words joined by separators)
+	 *   MAX_CONNECTION_POOL_SIZE          -> true  (upper-case constant)
+	 *   overview_component-layout_2026-01 -> true  (words plus short numbers)
+	 *   token_prefix_QwZx7YtRbNmKpLdVeJhGf -> false (one part is long and case-mixed)
+	 *   QwErTy_UiOpAs_DfGhJk_LzXcVbNm     -> false (parts alternate case内部で)
+	 *   eyJhbGciOiJIUzI1NiIsInR5cCI6Ikp   -> false (no separator at all)
+	 */
+	private function readsLikeIdentifier(string $token): bool {
+		// '+' and '=' belong to base64, never to identifiers.
+		if (str_contains($token, '+') || str_contains($token, '=')) {
+			return false;
+		}
+
+		// A secret is one unbroken run. Identifiers of this length are built from parts.
+		$parts = preg_split('/[_-]+/', $token, -1, PREG_SPLIT_NO_EMPTY);
+		if ($parts === false || count($parts) < 2) {
+			return false;
+		}
+
+		foreach ($parts as $part) {
+			// Long parts defeat the point: 'token_prefix_<21 random chars>' is still a secret.
+			if (strlen($part) > 15) {
+				return false;
+			}
+			$isWord = preg_match('/^(?:[a-z]+|[A-Z]+|[A-Z][a-z]+|[a-z]+(?:[A-Z][a-z]+)+)$/', $part) === 1;
+			$isShortNumber = preg_match('/^[0-9]{1,4}$/', $part) === 1;
+			if (!$isWord && !$isShortNumber) {
+				return false;
+			}
+		}
+
+		// All-numeric runs (ids, card-like sequences) are not identifiers.
+		foreach ($parts as $part) {
+			if (preg_match('/^[A-Za-z]/', $part) === 1) {
+				return true;
+			}
+		}
+		return false;
 	}
 }

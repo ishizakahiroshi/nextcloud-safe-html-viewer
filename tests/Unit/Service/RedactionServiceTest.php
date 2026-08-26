@@ -101,6 +101,62 @@ class RedactionServiceTest extends TestCase {
 		$this->assertStringContainsString('[REDACTED-SECRET]', $out);
 	}
 
+	/**
+	 * @dataProvider readableIdentifiers
+	 */
+	public function testKeepsLongReadableIdentifiers(string $identifier): void {
+		// '_' and '-' are inside the long-token class, so file names, slugs and
+		// constants match it as one token. Redacting those hides the very thing a
+		// technical document points at.
+		$out = $this->service->redact('<p>' . $identifier . '</p>');
+		$this->assertStringContainsString($identifier, $out);
+		$this->assertStringNotContainsString('[REDACTED-SECRET]', $out);
+	}
+
+	/** @return array<string, array{string}> */
+	public static function readableIdentifiers(): array {
+		return [
+			'snake and kebab words' => ['reference_developer-identity'],
+			'single long word' => ['reference_infrastructure'],
+			'three kebab words' => ['reference_module-lifecycle-notes'],
+			'words with a date' => ['overview_component-layout_2026-01-01'],
+			'upper case constant' => ['MAX_CONNECTION_POOL_SIZE'],
+			'camel case parts' => ['handleUserAuth_retryPolicy'],
+		];
+	}
+
+	public function testStillRedactsAnIdentifierWithOneVeryLongPart(): void {
+		// Known limitation, kept on purpose: a single part longer than 15 characters is
+		// what separates 'token_prefix_<21 random chars>' from a written word, so an unusually
+		// long word in an identifier is redacted too. Erring towards redaction is the
+		// documented stance for this heuristic.
+		$identifier = 'handleUserAuthentication_retryPolicy';
+		$out = $this->service->redact('<p>' . $identifier . '</p>');
+		$this->assertStringNotContainsString($identifier, $out);
+	}
+
+	/**
+	 * @dataProvider opaqueTokens
+	 */
+	public function testStillRedactsOpaqueTokens(string $token): void {
+		// The exemption above must not open a hole: anything that does not read as
+		// written words stays redacted.
+		$out = $this->service->redact('<p>' . $token . '</p>');
+		$this->assertStringNotContainsString($token, $out);
+	}
+
+	/** @return array<string, array{string}> */
+	public static function opaqueTokens(): array {
+		return [
+			'jwt header' => ['eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'],
+			'api key with prefix' => ['token_prefix_QwZx7YtRbNmKpLdVeJhGf'],
+			'personal access token' => ['pat_2fB7dK9mQ3xR6vT1yU4wZ8aC5eH0jL'],
+			'no separator at all' => ['QwErTyUiOpAsDfGhJkLzXcVbNmQwEr'],
+			'case alternating parts' => ['QwErTy_UiOpAs_DfGhJk_LzXcVbNm'],
+			'base64 padding' => ['aGVsbG8gd29ybGQgdGhpcyBpcyBhIHRlc3Rf'],
+		];
+	}
+
 	public function testDoesNotSwallowPublicUrlPathAsSecret(): void {
 		$html = '<p>https://example.com/path/with-long-segment-abcdefghijklmnop</p>';
 		$out = $this->service->redact($html);

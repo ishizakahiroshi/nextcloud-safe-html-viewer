@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Long file names, slugs and constants were replaced with `[REDACTED-SECRET]`. The
+  long-token heuristic matched on length alone, and `_` and `-` are inside its
+  character class, so any kebab or snake_case identifier of 24 characters or more read
+  as one opaque token — `docs/reference_infrastructure.md` arrived as
+  `docs/[REDACTED-SECRET].md`, and a document long enough to name itself lost its own
+  file name. Candidates that split into short written words on `-` or `_` now pass
+  through; anything without separators, with a part longer than 15 characters, with
+  parts that alternate case, or containing `+` or `=` stays redacted. Present since
+  0.1.0.
+
 ## [0.1.4] - 2026-07-27
 
 ### Fixed
