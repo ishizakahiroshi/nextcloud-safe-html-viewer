@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.5] - 2026-09-04
 
 ### Fixed
 
@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through; anything without separators, with a part longer than 15 characters, with
   parts that alternate case, or containing `+` or `=` stays redacted. Present since
   0.1.0.
+- Nine-digit employee numbers and year-month pairs such as `2026-08` were replaced
+  with `[REDACTED-PHONE]`. The phone heuristic matched on character-run length, and
+  spaces are inside its character class, so a padded ` 2026-08` or an 8-9 digit
+  identifier counted as a phone number. Candidates are now kept only when they carry
+  10-15 digits after ISO dates are stripped. Present since 0.1.0.
 
 ## [0.1.4] - 2026-07-27
 
@@ -134,6 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sandbox is intentionally restrictive.
 - Redaction is documented as best-effort (see README and SECURITY.md).
 
+[0.1.5]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.5
 [0.1.4]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.2

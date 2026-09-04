@@ -487,11 +487,17 @@ class RedactionService {
 		) ?? $text;
 
 		// 2. Phone numbers (loose international / JP / US style).
-		// Skip pure ISO dates (e.g. 2024-01-15) which otherwise false-positive.
 		// The character class allows spaces and parentheses, so a match can carry
-		// leading padding ("... (2026-07-17"). That padding has to be split off before
-		// the date check, otherwise dates in prose are misread as phone numbers; it is
-		// re-emitted afterwards so surrounding spacing is preserved.
+		// leading padding ("... (2026-07-17"). That padding has to be split off first
+		// and re-emitted afterwards so surrounding spacing is preserved.
+		// What survives is decided by how many digits the candidate actually carries:
+		// E.164 caps a phone number at 15 digits and the shortest JP number has 10, so
+		// a shorter run is an identifier that merely looks long — an employee or order
+		// number, a year-month pair — and redacting it hides the very content the
+		// reader opened the document for. ISO dates are dropped before counting because
+		// spaces are part of the match, so a run can span a date and a phone number at
+		// once ("090-1234-5678 2026-07-17") and a date alone must never count as one.
+		// Trade-off: 8-9 digit national numbers (e.g. HK, NO) are no longer matched.
 		$text = preg_replace_callback(
 			'/(?<!\w)(?:\+?[\d\s\-()]{7,}\d)(?!\w)/',
 			static function (array $m): string {
@@ -501,7 +507,9 @@ class RedactionService {
 					$lead = $pad[0];
 					$s = substr($s, strlen($lead));
 				}
-				if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $s) === 1) {
+				$withoutDates = preg_replace('/\d{4}-\d{2}-\d{2}/', '', $s) ?? $s;
+				$digitCount = strlen(preg_replace('/\D+/', '', $withoutDates) ?? '');
+				if ($digitCount < 10 || $digitCount > 15) {
 					return $m[0];
 				}
 				return $lead . '[REDACTED-PHONE]';

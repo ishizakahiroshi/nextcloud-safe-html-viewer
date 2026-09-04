@@ -303,6 +303,47 @@ class RedactionServiceTest extends TestCase {
 		$this->assertStringNotContainsString('090-1234-5678', $out);
 	}
 
+	public function testDoesNotRedactNineDigitIdentifierAsPhone(): void {
+		// Employee numbers are the reason a reader opens an incident report; a nine
+		// digit run is below every phone length and must survive.
+		$html = '<p>社員番号 123456789 の 8/4</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('123456789', $out);
+		$this->assertStringNotContainsString('[REDACTED-PHONE]', $out);
+	}
+
+	public function testDoesNotRedactYearMonthAsPhone(): void {
+		// The leading space is part of the match, which pushed " 2026-08" over the old
+		// length floor even though the ISO-date guard only covered full dates.
+		$html = '<p>対象月 2026-08 として</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('2026-08', $out);
+		$this->assertStringNotContainsString('[REDACTED-PHONE]', $out);
+	}
+
+	public function testDoesNotRedactEightDigitRunAsPhone(): void {
+		$html = '<p>受付番号 12345678</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('12345678', $out);
+		$this->assertStringNotContainsString('[REDACTED-PHONE]', $out);
+	}
+
+	public function testRedactsTenDigitLandline(): void {
+		$html = '<p>代表 03-1234-5678</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('[REDACTED-PHONE]', $out);
+		$this->assertStringNotContainsString('03-1234-5678', $out);
+	}
+
+	public function testRedactsPhoneEvenWhenAnIsoDateFollowsInTheSameRun(): void {
+		// Spaces are inside the character class, so the run spans both; dropping the
+		// date before counting keeps the phone number itself detectable.
+		$html = '<p>連絡先 090-1234-5678 2026-07-17</p>';
+		$out = $this->service->redact($html);
+		$this->assertStringContainsString('[REDACTED-PHONE]', $out);
+		$this->assertStringNotContainsString('090-1234-5678', $out);
+	}
+
 	public function testPlaceholderIsNotForgeableFromDocumentContent(): void {
 		// "&#83;HVNA..." parses into literal marker text that a scan of the source string
 		// cannot see, so a predictable placeholder would let a document swap its own
