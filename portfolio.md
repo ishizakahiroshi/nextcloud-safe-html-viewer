@@ -1,4 +1,11 @@
 ---
+cover:
+  path: portfolio/overview-2026-09-28.jpg
+  alt: {ja: "nextcloud-safe-html-viewer の紹介動画", en: "nextcloud-safe-html-viewer overview video"}
+video:
+  provider: youtube
+  id: "vXJLoRZHRmQ"
+  durationSeconds: 20
 schemaVersion: 1
 color: "#c99a3a"
 initials: "ns"
