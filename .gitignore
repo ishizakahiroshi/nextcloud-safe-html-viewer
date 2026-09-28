@@ -81,3 +81,27 @@ desktop.ini
 
 # docsweep: backup snapshots (30-day retention, auto-cleanup)
 .docsweep/
+
+# Local video source and renders
+/brag-output/
+
+# === project-init 推奨の追記（2026-09-28・templates/gitignore から不足分のみ） ===
+dist/
+*.tsbuildinfo
+*.swo
+*.jsonl
+.commandcode/
+.codex-tmp/
+opencode.json*
+.wrangler/
+.vercel/
+.netlify/
+.firebase/
+.turbo/
+.parcel-cache/
+.terraform/
+.serverless/
+**/supabase/.temp/
+!.env.example
+scripts/local/
+/docs/obsidian/
