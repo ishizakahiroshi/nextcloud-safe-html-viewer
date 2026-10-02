@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\SafeHtmlViewer\Controller;
 
+use OCA\SafeHtmlViewer\Service\PreviewChrome;
 use OCA\SafeHtmlViewer\Service\RedactionService;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\DataDisplayResponse;
@@ -12,7 +13,9 @@ use OCP\Files\File;
 use OCP\Files\IRootFolder;
 use OCP\Files\NotFoundException;
 use OCP\Files\NotPermittedException;
+use OCP\IL10N;
 use OCP\IRequest;
+use OCP\IURLGenerator;
 use OCP\IUserSession;
 
 class ViewController extends Controller {
@@ -23,18 +26,27 @@ class ViewController extends Controller {
 	private IRootFolder $rootFolder;
 	private IUserSession $userSession;
 	private RedactionService $redactionService;
+	private IL10N $l10n;
+	private IURLGenerator $urlGenerator;
+	private PreviewChrome $previewChrome;
 
 	public function __construct(
 		string $appName,
 		IRequest $request,
 		IRootFolder $rootFolder,
 		IUserSession $userSession,
-		RedactionService $redactionService
+		RedactionService $redactionService,
+		IL10N $l10n,
+		IURLGenerator $urlGenerator,
+		PreviewChrome $previewChrome
 	) {
 		parent::__construct($appName, $request);
 		$this->rootFolder = $rootFolder;
 		$this->userSession = $userSession;
 		$this->redactionService = $redactionService;
+		$this->l10n = $l10n;
+		$this->urlGenerator = $urlGenerator;
+		$this->previewChrome = $previewChrome;
 	}
 
 	/**
@@ -48,6 +60,77 @@ class ViewController extends Controller {
 	 * @NoCSRFRequired
 	 */
 	public function raw(int $fileId): Response {
+		$file = $this->resolvePreviewableFile($fileId);
+		if ($file instanceof Response) {
+			return $file;
+		}
+
+		try {
+			$content = $file->getContent();
+		} catch (NotFoundException | NotPermittedException $e) {
+			return $this->errorResponse('File not found or access denied', 404);
+		} catch (\Throwable $e) {
+			return $this->errorResponse('Unable to read file', 500);
+		}
+
+		$redacted = $this->redactionService->redact($content);
+
+		$response = new DataDisplayResponse($redacted, 200, [
+			'Content-Type'        => 'text/html; charset=utf-8',
+			'Content-Disposition' => 'inline',
+		]);
+
+		// Critical security header: sandbox without allow-same-origin.
+		// frame-ancestors/base-uri harden beyond sandbox alone (XFO remains as defense in depth).
+		$response->addHeader(
+			'Content-Security-Policy',
+			"sandbox allow-scripts allow-popups; frame-ancestors 'self'; base-uri 'none'"
+		);
+
+		// Extra hardening headers
+		$response->addHeader('X-Content-Type-Options', 'nosniff');
+		$response->addHeader('Referrer-Policy', 'no-referrer');
+		$response->addHeader('X-Frame-Options', 'SAMEORIGIN');
+
+		return $response;
+	}
+
+	/**
+	 * Parent page around the sandboxed raw document. The file body is not included.
+	 *
+	 * @NoAdminRequired
+	 * @NoCSRFRequired
+	 */
+	public function preview(int $fileId): Response {
+		$file = $this->resolvePreviewableFile($fileId);
+		if ($file instanceof Response) {
+			return $file;
+		}
+
+		// Success only proves the file is previewable. Do not read it into this page.
+		$iframeSrc = $this->urlGenerator->linkToRoute('safe_html_viewer.view.raw', ['fileId' => $fileId]);
+		$notice = $this->l10n->t('Scripts in this preview are running. They cannot access your Nextcloud session.');
+		$html = $this->previewChrome->html($iframeSrc, $notice);
+
+		$response = new DataDisplayResponse($html, 200, [
+			'Content-Type' => 'text/html; charset=utf-8',
+		]);
+
+		// No sandbox token on the parent. frame-ancestors 'none' — no X-Frame-Options.
+		$response->addHeader(
+			'Content-Security-Policy',
+			"default-src 'none'; frame-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
+		);
+		$response->addHeader('X-Content-Type-Options', 'nosniff');
+		$response->addHeader('Referrer-Policy', 'no-referrer');
+
+		return $response;
+	}
+
+	/**
+	 * Login, ACL, HTML type, and size gate shared by raw() and preview().
+	 */
+	private function resolvePreviewableFile(int $fileId): File|Response {
 		$user = $this->userSession->getUser();
 		if ($user === null) {
 			return $this->errorResponse('Unauthorized', 401);
@@ -88,34 +171,7 @@ class ViewController extends Controller {
 			return $this->errorResponse('File too large for preview', 413);
 		}
 
-		try {
-			$content = $node->getContent();
-		} catch (NotFoundException | NotPermittedException $e) {
-			return $this->errorResponse('File not found or access denied', 404);
-		} catch (\Throwable $e) {
-			return $this->errorResponse('Unable to read file', 500);
-		}
-
-		$redacted = $this->redactionService->redact($content);
-
-		$response = new DataDisplayResponse($redacted, 200, [
-			'Content-Type'        => 'text/html; charset=utf-8',
-			'Content-Disposition' => 'inline',
-		]);
-
-		// Critical security header: sandbox without allow-same-origin.
-		// frame-ancestors/base-uri harden beyond sandbox alone (XFO remains as defense in depth).
-		$response->addHeader(
-			'Content-Security-Policy',
-			"sandbox allow-scripts allow-popups; frame-ancestors 'self'; base-uri 'none'"
-		);
-
-		// Extra hardening headers
-		$response->addHeader('X-Content-Type-Options', 'nosniff');
-		$response->addHeader('Referrer-Policy', 'no-referrer');
-		$response->addHeader('X-Frame-Options', 'SAMEORIGIN');
-
-		return $response;
+		return $node;
 	}
 
 	private function errorResponse(string $message, int $status): Response {

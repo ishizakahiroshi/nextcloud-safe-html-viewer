@@ -28,6 +28,7 @@ We treat redaction bypasses as **informational / best-effort improvement** rathe
 
 ## Design Security Notes
 
+- The file action opens a parent page which does not contain the file body, and the HTML stays in an iframe whose sandbox is `allow-scripts allow-popups` without `allow-same-origin`.
 - The raw route always returns `Content-Security-Policy: sandbox allow-scripts allow-popups` **without** `allow-same-origin`.
 - File access goes exclusively through the caller's `IRootFolder` view → ACLs are inherited from Nextcloud.
 - Redaction runs only in memory on the response path. No writes back to storage.

@@ -42,7 +42,7 @@ registerFileAction({
 			}
 			fileId = s
 		}
-		const url = generateUrl(`/apps/${APP_ID}/raw/${fileId}`)
+		const url = generateUrl(`/apps/${APP_ID}/preview/${fileId}`)
 		window.open(url, '_blank', 'noopener,noreferrer')
 		return null
 	},

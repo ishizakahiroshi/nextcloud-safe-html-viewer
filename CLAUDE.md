@@ -9,7 +9,7 @@
 
 **nextcloud-safe-html-viewer** — Nextcloud 上の HTML 資料を **CSP sandbox で安全に表示**し、必要に応じて **秘匿情報を表示時に redaction** して共有事故を減らす Nextcloud カスタムアプリ。単なる HTML viewer ではなく「best-effort safe preview」として打ち出す。
 
-- `text/html` / `.html` の file action を登録し、`/apps/safe_html_viewer/raw/{fileId}` で `Content-Security-Policy: sandbox allow-scripts allow-popups`（`allow-same-origin` なし）付きの HTML を返す。
+- `text/html` / `.html` の file action を登録し、`/apps/safe_html_viewer/preview/{fileId}` を開く。そのページは既存の `/apps/safe_html_viewer/raw/{fileId}` を frame する。raw の HTML は `Content-Security-Policy: sandbox allow-scripts allow-popups`（`allow-same-origin` なし）付きで返す。
 - Nextcloud ACL を尊重し、ログインユーザーから見える fileId のみ表示する。
 - redaction は **表示時変換のみ**で原本ファイルを書き換えない。100% の漏洩防止保証ではなく best-effort であることを明示する。
 
@@ -25,7 +25,8 @@
 | Nextcloud app id | `safe_html_viewer` |
 | PHP namespace | `SafeHtmlViewer`（`OCA\SafeHtmlViewer`） |
 | file action id | `safe-html-viewer` |
-| raw route | `/apps/safe_html_viewer/raw/{fileId}` |
+| preview route | `/apps/safe_html_viewer/preview/{fileId}`（file action が開く。このページが raw を frame する） |
+| raw route | `/apps/safe_html_viewer/raw/{fileId}`（preview ページが frame する） |
 | 実装元（private・非公開） | 社内 codebase の既存実装（公開 repo からは参照しない。詳細は `docs/local/`） |
 
 > 移植元は非公開の社内実装という扱い。公開版のコード・ドキュメントに移植元の旧名や private 固有語を残さない。

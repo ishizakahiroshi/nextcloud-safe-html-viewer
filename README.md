@@ -64,7 +64,7 @@ Requires:
 
 1. Upload an `.html` file.
 2. In the Files app, right-click the file → **Safe HTML preview** (or click the file action).
-3. A new tab opens with the sandboxed + redacted content.
+3. A new tab opens and shows the notice outside a frame. The sandboxed and redacted file itself is inside the frame. Scripts inside the previewed HTML can run, but the preview page cannot access your Nextcloud cookies or same-origin APIs.
 
 Example before/after (fictional data):
 

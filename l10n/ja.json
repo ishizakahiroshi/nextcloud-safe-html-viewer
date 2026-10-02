@@ -1,6 +1,7 @@
 {
 	"translations": {
-		"Safe HTML preview": "HTML プレビュー"
+		"Safe HTML preview": "HTML プレビュー",
+		"Scripts in this preview are running. They cannot access your Nextcloud session.": "このプレビューではスクリプトが動いています。Nextcloud のセッションには届きません。"
 	},
 	"pluralForm": "nplurals=1; plural=0;"
 }
