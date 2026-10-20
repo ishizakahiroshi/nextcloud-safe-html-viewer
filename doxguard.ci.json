@@ -8,7 +8,8 @@
   },
   "allow": {
     "emails": [
-      "ishizakahiroshi.dev\u0040gmail.com"
+      "ishizakahiroshi.dev\u0040gmail.com",
+      "sindresorhus\u0040gmail.com"
     ],
     "emailDomains": [
       "example.com",
