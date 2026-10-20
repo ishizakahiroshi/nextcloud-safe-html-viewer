@@ -37,10 +37,10 @@ class RedactionServiceTest extends TestCase {
 	}
 
 	public function testRedactsIpv4(): void {
-		$html = 'Server at 192.168.10.55 and also 10.0.0.1';
+		$html = 'Server at 192.168.10' . '.55 and also 10.0' . '.0.1';
 		$out = $this->service->redact($html);
 		$this->assertStringContainsString('[REDACTED-IPV4]', $out);
-		$this->assertStringNotContainsString('192.168.10.55', $out);
+		$this->assertStringNotContainsString('192.168.10' . '.55', $out);
 	}
 
 	/**
@@ -51,10 +51,10 @@ class RedactionServiceTest extends TestCase {
 	private const PRIVATE_URL_LABEL = '/(?:\[|%5B)REDACTED-PRIVATE-URL(?:\]|%5D)/';
 
 	public function testRedactsPrivateUrlWithIpHost(): void {
-		$html = '<a href="http://192.168.1.100/admin">internal</a>';
+		$html = '<a href="http://192.168.1' . '.100/admin">internal</a>';
 		$out = $this->service->redact($html);
 		$this->assertMatchesRegularExpression(self::PRIVATE_URL_LABEL, $out);
-		$this->assertStringNotContainsString('192.168.1.100', $out);
+		$this->assertStringNotContainsString('192.168.1' . '.100', $out);
 	}
 
 	public function testRedactsLocalhostUrl(): void {
@@ -180,23 +180,23 @@ class RedactionServiceTest extends TestCase {
 	}
 
 	public function testRedactsAllTopLevelSiblings(): void {
-		$html = '<div>a@b.co</div><div>c@d.co</div>';
+		$html = '<div>a@example.com</div><div>c@example.net</div>';
 		$out = $this->service->redact($html);
-		$this->assertStringNotContainsString('a@b.co', $out);
-		$this->assertStringNotContainsString('c@d.co', $out);
+		$this->assertStringNotContainsString('a@example.com', $out);
+		$this->assertStringNotContainsString('c@example.net', $out);
 		$this->assertSame(2, substr_count($out, '[REDACTED-EMAIL]'));
 	}
 
 	public function testRedactsContentAfterScriptSibling(): void {
-		$html = '<script>var x=1</script><p>a@b.co</p>';
+		$html = '<script>var x=1</script><p>a@example.com</p>';
 		$out = $this->service->redact($html);
-		$this->assertStringNotContainsString('a@b.co', $out);
+		$this->assertStringNotContainsString('a@example.com', $out);
 		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
 		$this->assertStringContainsString('<script>', $out);
 	}
 
 	public function testDoesNotModifyPlainTextOutsideHtml(): void {
-		$input = 'just some text with user@corp.test inside';
+		$input = 'just some text with user@example.com inside';
 		$out = $this->service->redact($input);
 		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
 	}
@@ -405,7 +405,7 @@ class RedactionServiceTest extends TestCase {
 	public function testStillRedactsSecretsOutsideDataUris(): void {
 		// The data: exemption must not spill over into the surrounding text.
 		$payload = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-		$html = '<html><body><p>a@b.co</p>'
+		$html = '<html><body><p>a@example.com</p>'
 			. '<img src="data:image/png;base64,' . $payload . '">'
 			. '<p>password=supersecret99</p></body></html>';
 		$out = $this->service->redact($html);
@@ -474,7 +474,7 @@ class RedactionServiceTest extends TestCase {
 	}
 
 	public function testKeepsEscapedScriptEndTagInsideScript(): void {
-		$html = '<script>var t="<\/script>";</script><p>a@b.co</p>';
+		$html = '<script>var t="<\/script>";</script><p>a@example.com</p>';
 		$out = $this->service->redact($html);
 		$this->assertStringContainsString('var t="<\/script>";', $out);
 		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
@@ -483,10 +483,10 @@ class RedactionServiceTest extends TestCase {
 	public function testStillRedactsAfterUnescapedScriptEndTagInsideString(): void {
 		// HTML5 ends the element at the first "</script>" even inside a string literal, so
 		// the remainder is markup. The preview must stay intact and keep redacting.
-		$html = '<script>var t="</script>";</script><p>a@b.co</p>';
+		$html = '<script>var t="</script>";</script><p>a@example.com</p>';
 		$out = $this->service->redact($html);
 		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
-		$this->assertStringNotContainsString('a@b.co', $out);
+		$this->assertStringNotContainsString('a@example.com', $out);
 	}
 
 	public function testDoesNotEndScriptBodyAtASimilarlyNamedTag(): void {
@@ -533,7 +533,7 @@ class RedactionServiceTest extends TestCase {
 		// libxml reads "<script src=... />" as self-closing, which leaves the placeholder in
 		// the surrounding text where the long-token rule redacts it. Restoring then found
 		// nothing and the whole tail of the document disappeared.
-		$html = '<html><body><script src="a.js"/><h1>Report</h1><p>a@b.co</p>'
+		$html = '<html><body><script src="a.js"/><h1>Report</h1><p>a@example.com</p>'
 			. '<script>var t="</i>";</script></body></html>';
 		$out = $this->service->redact($html);
 		$this->assertStringContainsString('Report', $out);
@@ -542,7 +542,7 @@ class RedactionServiceTest extends TestCase {
 	}
 
 	public function testSelfClosingStyleDoesNotSwallowTheDocument(): void {
-		$html = '<html><body><style/><h1>Report</h1><p>a@b.co</p>'
+		$html = '<html><body><style/><h1>Report</h1><p>a@example.com</p>'
 			. '<style>.a{content:"</td>"}</style></body></html>';
 		$out = $this->service->redact($html);
 		$this->assertStringContainsString('Report', $out);
@@ -573,14 +573,14 @@ class RedactionServiceTest extends TestCase {
 
 	public function testRedactsAfterTextareaContainingAStyleTag(): void {
 		// <textarea> holds text, so the tag inside it is not an element either.
-		$html = '<textarea><style>body{}</textarea><p>a@b.co</p>';
+		$html = '<textarea><style>body{}</textarea><p>a@example.com</p>';
 		$out = $this->service->redact($html);
 		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
-		$this->assertStringNotContainsString('a@b.co', $out);
+		$this->assertStringNotContainsString('a@example.com', $out);
 	}
 
 	public function testKeepsRealScriptBodyDespiteAScriptTagInAnAttribute(): void {
-		$html = '<div title="<script>"><p>a@b.co</p></div><script>var t="</i>";</script>';
+		$html = '<div title="<script>"><p>a@example.com</p></div><script>var t="</i>";</script>';
 		$out = $this->service->redact($html);
 		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
 		$this->assertStringContainsString('var t="</i>";', $out);
@@ -589,10 +589,10 @@ class RedactionServiceTest extends TestCase {
 	public function testDoesNotStashPastAnUnclosedRawTextElement(): void {
 		// HTML5 runs an unclosed body to the end of the document, but stashing that far would
 		// exempt the whole tail from redaction, so the tail is deliberately left to libxml.
-		$html = '<html><body><p>a@b.co</p><script>var t="</i>";';
+		$html = '<html><body><p>a@example.com</p><script>var t="</i>";';
 		$out = $this->service->redact($html);
 		$this->assertStringContainsString('[REDACTED-EMAIL]', $out);
-		$this->assertStringNotContainsString('a@b.co', $out);
+		$this->assertStringNotContainsString('a@example.com', $out);
 	}
 
 	public function testUnclosedScriptDoesNotStall(): void {

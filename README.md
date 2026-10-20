@@ -70,8 +70,8 @@ Example before/after (fictional data):
 
 **Original snippet**
 ```html
-<p>Admin contact: admin@internal.corp.example</p>
-<p>API endpoint: https://192.168.10.50/api?token=eyJhbGciOi...</p>
+<p>Admin contact: admin@example.com</p>
+<p>API endpoint: https://192.168.x.x/api?token=eyJhbGciOi...</p>
 ```
 
 **After redaction (what the viewer shows)**
