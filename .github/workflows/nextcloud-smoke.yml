@@ -92,7 +92,7 @@ jobs:
               --data-urlencode "user=$1" --data-urlencode "password=$OC_PASS" \
               --data-urlencode "requesttoken=$token" --data-urlencode "timezone=UTC" --data-urlencode "timezone_offset=0" \
               "$base/login")
-            echo "login $1: POST $res; $(grep -iE '^(location|set-cookie)' "$RUNNER_TEMP/login-$1.headers" | sed -E 's/(=[^;]{8})[^;]*/\1.../' | tr -d '\r' | tr '\n' ' ')"
+            echo "login $1: POST $res; $(grep -iE '^location' "$RUNNER_TEMP/login-$1.headers" | tr -d '\r')"
             echo "cookies now: $(awk 'NF>=7 {printf "%s ", $6}' "$jar")"
           }
           login owner; login other
