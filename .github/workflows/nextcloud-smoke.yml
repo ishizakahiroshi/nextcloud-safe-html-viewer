@@ -92,7 +92,7 @@ jobs:
               --data-urlencode "requesttoken=$token" --data-urlencode "timezone=UTC" --data-urlencode "timezone_offset=0" \
               "$base/login")
             echo "login $1: $res; cookies: $(awk 'NF>=7 {printf "%s ", $6}' "$jar")"
-            grep -ioE '(wrong|invalid|failed|expired|session|csrf|too many|blocked)[^<]{0,80}' "$RUNNER_TEMP/login-$1.html" | sort -u | head -n 5 || true
+            grep -oE '(Wrong [a-z ]{1,40}|Invalid [a-z ]{1,40}|Session expired|Too many [a-z ]{1,30}|loginMessages[^;]{0,120}|wrongPasswordMsg)' "$RUNNER_TEMP/login-$1.html" | sort -u | head -n 5 || true
             echo "token length: ${#token}"
           }
           login owner; login other
