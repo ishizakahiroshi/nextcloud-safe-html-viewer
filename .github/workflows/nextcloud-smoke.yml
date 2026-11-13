@@ -87,10 +87,11 @@ jobs:
             jar="$RUNNER_TEMP/$1.jar"; : > "$jar"
             token=$(curl -fsS -c "$jar" -b "$jar" "$base/login" | grep -o 'data-requesttoken="[^"]*"' | head -n1 | cut -d'"' -f2)
             test -n "$token" || { echo "no request token on login page"; return 1; }
-            curl -sS -o /dev/null -c "$jar" -b "$jar" -L \
+            res=$(curl -sS -o "$RUNNER_TEMP/login-$1.html" -c "$jar" -b "$jar" -L -w '%{http_code} %{url_effective}' \
               --data-urlencode "user=$1" --data-urlencode "password=$OC_PASS" \
               --data-urlencode "requesttoken=$token" --data-urlencode "timezone=UTC" --data-urlencode "timezone_offset=0" \
-              "$base/login"
+              "$base/login")
+            echo "login $1: $res; cookies: $(awk 'NF>=7 {printf "%s ", $6}' "$jar")"
           }
           login owner; login other
 
