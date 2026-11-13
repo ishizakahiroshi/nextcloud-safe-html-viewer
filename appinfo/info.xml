@@ -28,6 +28,6 @@ Adds a **"Safe HTML preview"** file action to `.html` / `text/html` files. The f
 	<screenshot>https://raw.githubusercontent.com/ishizakahiroshi/nextcloud-safe-html-viewer/main/screenshots/screenshot1.png</screenshot>
 	<screenshot>https://raw.githubusercontent.com/ishizakahiroshi/nextcloud-safe-html-viewer/main/screenshots/screenshot2.png</screenshot>
 	<dependencies>
-		<nextcloud min-version="28" max-version="33"/>
+		<nextcloud min-version="28" max-version="35"/>
 	</dependencies>
 </info>

@@ -57,7 +57,7 @@ npm run build   # produces js/main.js
 Place the folder under `apps/safe_html_viewer` of your Nextcloud and enable the app.
 
 Requires:
-- Nextcloud 28 – 33
+- Nextcloud 28 – 35
 - PHP 8.0+
 
 ## Usage

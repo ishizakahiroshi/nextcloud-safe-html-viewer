@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Declare support for Nextcloud 34 and 35. Install, enable, login-session preview and raw responses (CSP sandbox, redaction, per-user access) were verified on 33.0.10, 34.0.5 and 35.0.2 with the manually dispatched smoke workflow.
+- Controller access rules use PHP attributes instead of docblock annotations.
+
 ### Added
 
 - Safe HTML preview opens a page that says scripts in this preview are running. The file stays in a sandboxed frame without allow-same-origin.
