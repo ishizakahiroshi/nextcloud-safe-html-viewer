@@ -1,0 +1,122 @@
+name: Nextcloud smoke test
+
+# Manual and branch-scoped on purpose: it pulls Nextcloud images and runs a disposable
+# server. It installs the app, then exercises the real browser path (session cookie, no
+# CSRF token) against /preview and /raw. Nextcloud 34/35 are tested with max-version
+# widened inside the test copy only; appinfo/info.xml in the repository is not changed.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['ci/nc-compat-**']
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Nextcloud ${{ matrix.major }} smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - major: '33'
+            image: 'nextcloud:33.0.10-apache@sha256:81cb09055a20142521a267cea2bc27e6a81a065871c70850d209f08803567dbc'
+          - major: '34'
+            image: 'nextcloud:34.0.5-apache@sha256:d8ad0b77c863611b9fab6e72a82a5d35fbcb218b660f9f20fec9941a50806281'
+          - major: '35'
+            image: 'nextcloud:35.0.2-apache@sha256:786c102155d2717ba0f53a62b3fdd7a1354edc48e800b94dbe32294d9a5752a2'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install, enable and exercise the app on a disposable Nextcloud
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=http://127.0.0.1:18080
+          cleanup() { docker rm -f shv-smoke >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          occ() { docker exec --user www-data -w /var/www/html shv-smoke php occ "$@"; }
+
+          docker run -d --name shv-smoke -p 127.0.0.1:18080:80 \
+            -e SQLITE_DATABASE=nextcloud -e NEXTCLOUD_ADMIN_USER=ciadmin \
+            -e NEXTCLOUD_ADMIN_PASSWORD="$(openssl rand -hex 16)" -e NEXTCLOUD_TRUSTED_DOMAINS=127.0.0.1 \
+            "${{ matrix.image }}" >/dev/null
+          ready=0
+          for attempt in $(seq 1 90); do
+            if curl -fsS "$base/status.php" 2>/dev/null \
+              | python3 -c 'import json,sys; s=json.load(sys.stdin); sys.exit(0 if s.get("installed") and not s.get("maintenance") else 1)' 2>/dev/null; then
+              ready=1; break
+            fi
+            sleep 5
+          done
+          test "$ready" = 1 || { echo 'Nextcloud initialization timed out'; exit 1; }
+          curl -fsS "$base/status.php" | python3 -c 'import json,sys; print("Nextcloud", json.load(sys.stdin)["versionstring"])'
+
+          # Runtime tree only: no tests, dependencies or local notes.
+          stage="$RUNNER_TEMP/safe_html_viewer"
+          mkdir -p "$stage/js"
+          cp -r appinfo lib l10n "$stage/"
+          cp js/main.js "$stage/js/"
+          docker cp "$stage" shv-smoke:/var/www/html/custom_apps/
+          docker exec shv-smoke chown -R www-data:www-data /var/www/html/custom_apps/safe_html_viewer
+          # Test copy only: set max-version to the tested major.
+          docker exec shv-smoke sed -i -E 's/max-version="[0-9]+"/max-version="${{ matrix.major }}"/' \
+            /var/www/html/custom_apps/safe_html_viewer/appinfo/info.xml
+          occ app:enable safe_html_viewer
+          occ app:list --output=json \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "safe_html_viewer" in d["enabled"], d["enabled"].keys()'
+          curl -fsS "$base/custom_apps/safe_html_viewer/js/main.js" -o "$RUNNER_TEMP/served.js"
+          test "$(sha256sum js/main.js | cut -d' ' -f1)" = "$(sha256sum "$RUNNER_TEMP/served.js" | cut -d' ' -f1)"
+
+          # Two synthetic users: the owner and an unrelated user.
+          export OC_PASS="$(openssl rand -hex 12)-Aa1"
+          for u in owner other; do
+            docker exec -e OC_PASS --user www-data -w /var/www/html shv-smoke php occ user:add --password-from-env "$u" >/dev/null
+          done
+          printf '<html><body><p>visible-marker</p><p>mail leak.person@example.com end</p><script>1</script></body></html>' > "$RUNNER_TEMP/doc.html"
+          curl -fsS -u "owner:$OC_PASS" -T "$RUNNER_TEMP/doc.html" "$base/remote.php/dav/files/owner/doc.html"
+          fileid=$(curl -fsS -u "owner:$OC_PASS" -X PROPFIND -H 'Depth: 0' \
+            --data '<d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:prop><oc:fileid/></d:prop></d:propfind>' \
+            "$base/remote.php/dav/files/owner/doc.html" | grep -o '<oc:fileid>[0-9]*' | grep -o '[0-9]*$')
+          test -n "$fileid"; echo "fileid=$fileid"
+
+          # Real browser path: session cookie, no basic auth, no request token on the GET.
+          login() {
+            jar="$RUNNER_TEMP/$1.jar"; : > "$jar"
+            token=$(curl -fsS -c "$jar" -b "$jar" "$base/login" | grep -o 'data-requesttoken="[^"]*"' | head -n1 | cut -d'"' -f2)
+            test -n "$token" || { echo "no request token on login page"; return 1; }
+            curl -sS -o /dev/null -c "$jar" -b "$jar" -L \
+              --data-urlencode "user=$1" --data-urlencode "password=$OC_PASS" \
+              --data-urlencode "requesttoken=$token" --data-urlencode "timezone=UTC" --data-urlencode "timezone_offset=0" \
+              "$base/login"
+          }
+          login owner; login other
+
+          get() { # jar url -> sets $status, writes headers/body
+            curl -sS -o "$RUNNER_TEMP/body" -D "$RUNNER_TEMP/headers" -w '%{http_code}' ${1:+-b "$RUNNER_TEMP/$1.jar"} "$base/index.php/apps/safe_html_viewer/$2" || true
+          }
+          fail() { echo "FAIL: $1"; echo '--- headers'; cat "$RUNNER_TEMP/headers"; echo '--- body'; head -c 800 "$RUNNER_TEMP/body"; exit 1; }
+
+          status=$(get owner "preview/$fileid")
+          test "$status" = 200 || fail "owner preview returned $status"
+          grep -qi "frame-ancestors 'none'" "$RUNNER_TEMP/headers" || fail 'preview CSP missing frame-ancestors none'
+          grep -q "raw/$fileid" "$RUNNER_TEMP/body" || fail 'preview page does not frame the raw route'
+
+          status=$(get owner "raw/$fileid")
+          test "$status" = 200 || fail "owner raw returned $status"
+          grep -qi 'content-security-policy: sandbox allow-scripts allow-popups' "$RUNNER_TEMP/headers" || fail 'raw CSP sandbox header missing'
+          if grep -qi 'allow-same-origin' "$RUNNER_TEMP/headers"; then fail 'raw CSP must not allow same origin'; fi
+          grep -q 'visible-marker' "$RUNNER_TEMP/body" || fail 'raw body lost the visible content'
+          if grep -q 'leak.person@example.com' "$RUNNER_TEMP/body"; then fail 'email was not redacted'; fi
+
+          status=$(get other "raw/$fileid")
+          test "$status" = 404 || fail "another user got $status for the owner's file"
+          status=$(get '' "raw/$fileid")
+          case "$status" in 200) fail 'anonymous request was served' ;; esac
+          echo "anonymous status: $status"
+
+          occ app:disable safe_html_viewer
+          occ app:list --output=json \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "safe_html_viewer" not in d["enabled"]'

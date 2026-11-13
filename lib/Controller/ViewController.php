@@ -7,6 +7,8 @@ namespace OCA\SafeHtmlViewer\Controller;
 use OCA\SafeHtmlViewer\Service\PreviewChrome;
 use OCA\SafeHtmlViewer\Service\RedactionService;
 use OCP\AppFramework\Controller;
+use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\DataDisplayResponse;
 use OCP\AppFramework\Http\Response;
 use OCP\Files\File;
@@ -55,10 +57,9 @@ class ViewController extends Controller {
 	 * - ACL is enforced by fetching the file through the current user's folder view.
 	 * - Original file on storage is never modified.
 	 * - CSP deliberately omits allow-same-origin.
-	 *
-	 * @NoAdminRequired
-	 * @NoCSRFRequired
 	 */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
 	public function raw(int $fileId): Response {
 		$file = $this->resolvePreviewableFile($fileId);
 		if ($file instanceof Response) {
@@ -97,10 +98,9 @@ class ViewController extends Controller {
 
 	/**
 	 * Parent page around the sandboxed raw document. The file body is not included.
-	 *
-	 * @NoAdminRequired
-	 * @NoCSRFRequired
 	 */
+	#[NoAdminRequired]
+	#[NoCSRFRequired]
 	public function preview(int $fileId): Response {
 		$file = $this->resolvePreviewableFile($fileId);
 		if ($file instanceof Response) {
