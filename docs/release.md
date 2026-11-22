@@ -25,7 +25,9 @@ This document is for people who cut releases of nextcloud-safe-html-viewer.
 
 4. Push: `git push && git push --tags`
 
-5. GitHub Actions (`.github/workflows/release.yml`) runs on the tag push and will:
+5. GitHub Actions (`.github/workflows/release.yml`) runs on the tag push. Approve
+   the `release` deployment in the run page ("Review deployments"); the job then
+   will:
    - Build the tarball
    - Create the GitHub Release and attach `safe_html_viewer-vX.Y.Z.tar.gz`
    - If the App Store secrets are configured (see below), sign the tarball and
@@ -57,7 +59,10 @@ This document is for people who cut releases of nextcloud-safe-html-viewer.
      | openssl base64
    ```
 5. Create an App Store token at https://apps.nextcloud.com/account/token.
-6. Add these repository secrets (Settings -> Secrets and variables -> Actions):
+6. Add these secrets to the `release` environment (Settings -> Environments ->
+   release), not as repository secrets. The environment accepts only `v*` tags
+   and waits for the owner's approval, so a workflow on any other branch cannot
+   read them:
    - `APPSTORE_TOKEN` — the token from step 5
    - `APP_PRIVATE_KEY` — the full contents of `safe_html_viewer.key`
 

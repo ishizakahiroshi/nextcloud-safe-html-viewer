@@ -11,9 +11,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The App Store credentials live in the `release` environment, which accepts
+    # only v* tags and waits for the owner's approval before this job starts.
+    environment: release
     # App Store publishing is optional. Set the APPSTORE_TOKEN and APP_PRIVATE_KEY
-    # repository secrets (see docs/release.md) to enable the final step. Without
-    # them that step is skipped and only the GitHub Release tarball is produced.
+    # secrets in the `release` environment (see docs/release.md) to enable the
+    # final step. Without them that step is skipped and only the GitHub Release
+    # tarball is produced.
     env:
       APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
