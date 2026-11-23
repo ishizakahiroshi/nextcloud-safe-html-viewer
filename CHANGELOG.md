@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-11-23
+
 ### Changed
 
 - Declare support for Nextcloud 34 and 35. Install, enable, login-session preview and raw responses (CSP sandbox, redaction, per-user access) were verified on 33.0.10, 34.0.5 and 35.0.2 with the manually dispatched smoke workflow.
@@ -150,6 +152,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sandbox is intentionally restrictive.
 - Redaction is documented as best-effort (see README and SECURITY.md).
 
+[0.1.6]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.6
 [0.1.5]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.5
 [0.1.4]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ishizakahiroshi/nextcloud-safe-html-viewer/releases/tag/v0.1.3
